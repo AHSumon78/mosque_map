@@ -66,6 +66,7 @@ router.get('/mosques/bounds', mosqueController.getMosquesInBounds);
 router.get('/mosques/stats', mosqueController.getStats);
 
 // Protected Mosque Routes (Require Login)
+router.post('/mosques', authController.requireAuth, mosqueController.createMosque);
 router.put('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
 router.patch('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
 router.post('/mosques/import', authController.requireAuth, upload.single('file'), importController.importCSV);

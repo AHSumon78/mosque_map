@@ -201,6 +201,65 @@ const mosqueController = {
     },
 
     /**
+     * Add a New Mosque
+     * POST /api/v1/mosques
+     * Body: { name, latitude, longitude, has_female_facility }
+     */
+    async createMosque(req, res) {
+        try {
+            const { name, latitude, longitude, has_female_facility } = req.body;
+
+            if (!name || latitude === undefined || longitude === undefined) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'মসজিদের নাম (name), অক্ষাংশ (latitude) এবং দ্রাঘিমাংশ (longitude) বাধ্যতামূলক।'
+                });
+            }
+
+            const cleanName = String(name).trim();
+            const lat = parseFloat(latitude);
+            const lng = parseFloat(longitude);
+            const femaleVal = (has_female_facility === true || has_female_facility === 1 || has_female_facility === '1' || has_female_facility === 'true') ? 1 : 0;
+
+            if (isNaN(lat) || isNaN(lng) || lat < 20 || lat > 27 || lng < 87 || lng > 93) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'সঠিক বাংলাদেশ ভৌগোলিক কোঅর্ডিনেটস প্রদান করুন (Latitude: 20.0-27.0, Longitude: 87.0-93.0)।'
+                });
+            }
+
+            const query = `
+                INSERT INTO mosques (name, latitude, longitude, location, has_female_facility)
+                VALUES (?, ?, ?, POINT(?, ?), ?)
+                ON DUPLICATE KEY UPDATE
+                    name = VALUES(name),
+                    has_female_facility = VALUES(has_female_facility)
+            `;
+
+            const [result] = await pool.query(query, [cleanName, lat, lng, lat, lng, femaleVal]);
+
+            return res.status(201).json({
+                success: true,
+                message: 'নতুন মসজিদ সফলভাবে যুক্ত হয়েছে!',
+                data: {
+                    id: result.insertId,
+                    name: cleanName,
+                    latitude: lat,
+                    longitude: lng,
+                    has_female_facility: femaleVal
+                }
+            });
+
+        } catch (error) {
+            console.error('Error creating mosque:', error);
+            return res.status(500).json({
+                success: false,
+                error: 'নতুন মসজিদ যুক্ত করতে ব্যর্থ হয়েছে: ' + error.message
+            });
+        }
+    },
+
+    /**
      * Update Mosque Information (Female facility, name)
      * PATCH/PUT /api/v1/mosques/:id
      */
