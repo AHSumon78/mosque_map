@@ -1,15 +1,20 @@
 /**
  * Bangladesh Mosque Map - Frontend Application
- * Supports Spatial Nearby Search, Female Prayer Facilities, and Live Facility Updates
+ * Supports Reverse Proxy sub-paths, User Authentication, Spatial Search, and Facility Updates
  */
 
+// Compute Dynamic API Base URL (works seamlessly both on root and sub-paths like /mosque-map/)
+const currentPath = window.location.pathname.replace(/\/+$/, '');
+const API_BASE = (currentPath ? currentPath : '') + '/api/v1';
+
 // Global State
-let map;
-let markerCluster;
+let map = null;
+let markerCluster = null;
 let currentCircle = null;
 let userPinMarker = null;
 let currentCenter = { lat: 23.8103, lng: 90.4125 }; // Default Dhaka center
 let selectedFile = null;
+let authToken = localStorage.getItem('mosque_token');
 
 // Normal Mosque Icon
 const mosqueIcon = L.divIcon({
@@ -40,10 +45,121 @@ const userLocationIcon = L.divIcon({
 
 // Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
-    initMap();
-    fetchStats();
-    setupEventListeners();
+    setupAuthListeners();
+    checkAuthAndInit();
 });
+
+// ==========================================
+// Authentication Handling
+// ==========================================
+async function checkAuthAndInit() {
+    authToken = localStorage.getItem('mosque_token');
+
+    if (!authToken) {
+        showLoginScreen();
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/auth/verify`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await res.json();
+
+        if (data.success && data.authenticated) {
+            showAppScreen(data.user?.username || 'Admin');
+        } else {
+            showLoginScreen();
+        }
+    } catch (err) {
+        // If offline or error, prompt login
+        showLoginScreen();
+    }
+}
+
+function showLoginScreen() {
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('appContainer').style.display = 'none';
+}
+
+function showAppScreen(username) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appContainer').style.display = 'flex';
+    document.getElementById('loggedInUser').innerText = username;
+
+    if (!map) {
+        initMap();
+        fetchStats();
+        setupEventListeners();
+    } else {
+        setTimeout(() => map.invalidateSize(), 200);
+    }
+}
+
+function setupAuthListeners() {
+    const loginForm = document.getElementById('loginForm');
+    const loginErrorMsg = document.getElementById('loginErrorMsg');
+    const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    // Login Form Submit
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        loginErrorMsg.style.display = 'none';
+        loginSubmitBtn.disabled = true;
+        loginSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> যাচাই হচ্ছে...';
+
+        const username = document.getElementById('usernameInput').value.trim();
+        const password = document.getElementById('passwordInput').value;
+
+        try {
+            const res = await fetch(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await res.json();
+            loginSubmitBtn.disabled = false;
+            loginSubmitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> লগইন করুন';
+
+            if (data.success && data.token) {
+                localStorage.setItem('mosque_token', data.token);
+                showAppScreen(data.user?.username || username);
+            } else {
+                loginErrorMsg.innerText = data.error || 'ভুল ইউজারনেম বা পাসওয়ার্ড!';
+                loginErrorMsg.style.display = 'block';
+            }
+        } catch (err) {
+            loginSubmitBtn.disabled = false;
+            loginSubmitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> লগইন করুন';
+            loginErrorMsg.innerText = 'সার্ভারের সাথে সংযোগ করা যায়নি।';
+            loginErrorMsg.style.display = 'block';
+        }
+    });
+
+    // Logout
+    logoutBtn.addEventListener('click', async () => {
+        if (!confirm('আপনি কি নিশ্চিত লগআউট করতে চান?')) return;
+
+        try {
+            await fetch(`${API_BASE}/auth/logout`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('mosque_token')}`
+                }
+            });
+        } catch (err) {}
+
+        localStorage.removeItem('mosque_token');
+        window.location.reload();
+    });
+}
+
+// ==========================================
+// Map Application Logic
+// ==========================================
 
 // 1. Initialize Map
 function initMap() {
@@ -72,12 +188,14 @@ function initMap() {
     map.on('click', (e) => {
         searchNearbyAt(e.latlng.lat, e.latlng.lng);
     });
+
+    setTimeout(() => map.invalidateSize(), 300);
 }
 
 // 2. Fetch Total Mosque & Female Facility Stats
 async function fetchStats() {
     try {
-        const res = await fetch('/api/v1/mosques/stats');
+        const res = await fetch(`${API_BASE}/mosques/stats`);
         const data = await res.json();
         if (data.success) {
             const total = Number(data.total_mosques).toLocaleString('en-US');
@@ -119,7 +237,7 @@ async function searchNearbyAt(lat, lng) {
 
     try {
         const femaleParam = femaleOnly ? '&female_only=1' : '';
-        const res = await fetch(`/api/v1/mosques/nearby?lat=${lat}&lng=${lng}&radius=${radius}&limit=100${femaleParam}`);
+        const res = await fetch(`${API_BASE}/mosques/nearby?lat=${lat}&lng=${lng}&radius=${radius}&limit=100${femaleParam}`);
         const json = await res.json();
 
         if (!json.success || !json.data || json.data.length === 0) {
@@ -238,7 +356,7 @@ function renderMapMarkers(mosques) {
     });
 }
 
-// 6. Toggle Female Facility via API
+// 6. Toggle Female Facility via API (Protected with Auth Header)
 async function toggleFemaleFacility(id, currentStatus) {
     const newStatus = currentStatus === 1 ? false : true;
     const confirmMsg = newStatus 
@@ -248,9 +366,12 @@ async function toggleFemaleFacility(id, currentStatus) {
     if (!confirm(confirmMsg)) return;
 
     try {
-        const res = await fetch(`/api/v1/mosques/${id}`, {
+        const res = await fetch(`${API_BASE}/mosques/${id}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('mosque_token')}`
+            },
             body: JSON.stringify({ has_female_facility: newStatus })
         });
 
@@ -258,12 +379,11 @@ async function toggleFemaleFacility(id, currentStatus) {
         if (json.success) {
             alert('✅ মসজিদের তথ্য সফলভাবে আপডেট হয়েছে!');
             fetchStats();
-            // Refresh current query
             if (userPinMarker) {
                 searchNearbyAt(currentCenter.lat, currentCenter.lng);
             }
         } else {
-            alert('❌ আপডেট ব্যর্থ: ' + (json.error || 'অজানা ত্রুটি'));
+            alert('❌ আপডেট ব্যর্থ: ' + (json.error || 'অননুমোদিত'));
         }
     } catch (err) {
         alert('❌ সার্ভারের সাথে সংযোগ ব্যর্থ: ' + err.message);
@@ -272,56 +392,60 @@ async function toggleFemaleFacility(id, currentStatus) {
 
 // 7. Name Search Handler
 let searchTimeout;
-document.getElementById('searchInput').addEventListener('input', (e) => {
-    clearTimeout(searchTimeout);
-    const query = e.target.value.trim();
-    const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
+function setupSearchHandler() {
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        const query = e.target.value.trim();
+        const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
 
-    if (!query) {
-        if (userPinMarker) {
-            searchNearbyAt(currentCenter.lat, currentCenter.lng);
-        }
-        return;
-    }
-
-    searchTimeout = setTimeout(async () => {
-        const resultsList = document.getElementById('resultsList');
-        const searchStatus = document.getElementById('searchStatus');
-        searchStatus.innerText = 'অনুসন্ধান হচ্ছে...';
-        resultsList.innerHTML = '<div style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>';
-
-        try {
-            const femaleParam = femaleOnly ? '&female_only=1' : '';
-            const res = await fetch(`/api/v1/mosques/search?q=${encodeURIComponent(query)}&limit=40${femaleParam}`);
-            const json = await res.json();
-
-            if (!json.success || json.data.length === 0) {
-                searchStatus.innerText = '০ টি পাওয়া গেছে';
-                resultsList.innerHTML = `
-                    <div style="text-align: center; color: var(--text-muted); padding: 30px;">
-                        <p>"${query}" নামে কোনো মসজিদ খুঁজে পাওয়া যায়নি।</p>
-                    </div>
-                `;
-                markerCluster.clearLayers();
-                return;
+        if (!query) {
+            if (userPinMarker) {
+                searchNearbyAt(currentCenter.lat, currentCenter.lng);
             }
-
-            searchStatus.innerText = `${json.data.length} টি পাওয়া গেছে`;
-            renderMosqueResults(json.data);
-            renderMapMarkers(json.data);
-
-            if (json.data.length > 0) {
-                map.flyTo([json.data[0].latitude, json.data[0].longitude], 14);
-            }
-
-        } catch (err) {
-            searchStatus.innerText = 'ত্রুটি';
+            return;
         }
-    }, 350);
-});
+
+        searchTimeout = setTimeout(async () => {
+            const resultsList = document.getElementById('resultsList');
+            const searchStatus = document.getElementById('searchStatus');
+            searchStatus.innerText = 'অনুসন্ধান হচ্ছে...';
+            resultsList.innerHTML = '<div style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>';
+
+            try {
+                const femaleParam = femaleOnly ? '&female_only=1' : '';
+                const res = await fetch(`${API_BASE}/mosques/search?q=${encodeURIComponent(query)}&limit=40${femaleParam}`);
+                const json = await res.json();
+
+                if (!json.success || json.data.length === 0) {
+                    searchStatus.innerText = '০ টি পাওয়া গেছে';
+                    resultsList.innerHTML = `
+                        <div style="text-align: center; color: var(--text-muted); padding: 30px;">
+                            <p>"${query}" নামে কোনো মসজিদ খুঁজে পাওয়া যায়নি।</p>
+                        </div>
+                    `;
+                    markerCluster.clearLayers();
+                    return;
+                }
+
+                searchStatus.innerText = `${json.data.length} টি পাওয়া গেছে`;
+                renderMosqueResults(json.data);
+                renderMapMarkers(json.data);
+
+                if (json.data.length > 0) {
+                    map.flyTo([json.data[0].latitude, json.data[0].longitude], 14);
+                }
+
+            } catch (err) {
+                searchStatus.innerText = 'ত্রুটি';
+            }
+        }, 350);
+    });
+}
 
 // 8. Setup Event Listeners
 function setupEventListeners() {
+    setupSearchHandler();
+
     // Female Only Toggle
     document.getElementById('femaleOnlyToggle').addEventListener('change', () => {
         const query = document.getElementById('searchInput').value.trim();
@@ -344,12 +468,12 @@ function setupEventListeners() {
 
         navigator.geolocation.getCurrentPosition(
             (pos) => {
-                locateBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশের মসজিদ';
+                locateBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশে';
                 map.flyTo([pos.coords.latitude, pos.coords.longitude], 15);
                 searchNearbyAt(pos.coords.latitude, pos.coords.longitude);
             },
             (err) => {
-                locateBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশের মসজিদ';
+                locateBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশে';
                 alert('লোকেশন পাওয়া যায়নি: ' + err.message);
             },
             { enableHighAccuracy: true }
@@ -449,8 +573,11 @@ function setupEventListeners() {
         formData.append('file', selectedFile);
 
         try {
-            const res = await fetch('/api/v1/mosques/import', {
+            const res = await fetch(`${API_BASE}/mosques/import`, {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('mosque_token')}`
+                },
                 body: formData
             });
 

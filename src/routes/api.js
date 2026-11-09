@@ -5,6 +5,7 @@ const fs = require('fs');
 
 const mosqueController = require('../controllers/mosqueController');
 const importController = require('../controllers/importController');
+const authController = require('../controllers/authController');
 
 const router = express.Router();
 
@@ -46,17 +47,20 @@ router.get('/health', (req, res) => {
     });
 });
 
-// Mosque Query Routes
+// Authentication Routes
+router.post('/auth/login', authController.login);
+router.get('/auth/verify', authController.verify);
+router.post('/auth/logout', authController.logout);
+
+// Mosque Query Routes (Public or protected)
 router.get('/mosques/nearby', mosqueController.getNearbyMosques);
 router.get('/mosques/search', mosqueController.searchMosques);
 router.get('/mosques/bounds', mosqueController.getMosquesInBounds);
 router.get('/mosques/stats', mosqueController.getStats);
 
-// Mosque Update Routes (Update name, female facility, etc.)
-router.put('/mosques/:id', mosqueController.updateMosque);
-router.patch('/mosques/:id', mosqueController.updateMosque);
-
-// CSV Import Route
-router.post('/mosques/import', upload.single('file'), importController.importCSV);
+// Protected Routes (Require Login)
+router.put('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
+router.patch('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
+router.post('/mosques/import', authController.requireAuth, upload.single('file'), importController.importCSV);
 
 module.exports = router;

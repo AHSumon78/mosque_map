@@ -23,12 +23,133 @@ body {
     color: var(--text);
     background-color: var(--gray-bg);
     height: 100vh;
-    display: flex;
-    flex-direction: column;
+    margin: 0;
     overflow: hidden;
 }
 
-/* Header */
+/* =========================================
+   Login Screen Styles
+   ========================================= */
+.login-wrapper {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #0f172a 100%);
+    padding: 20px;
+}
+
+.login-card {
+    background: #ffffff;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 16px;
+    padding: 36px 32px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    text-align: left;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.login-logo {
+    font-size: 2.8rem;
+    color: var(--primary);
+    margin-bottom: 12px;
+}
+
+.login-header h2 {
+    font-size: 1.4rem;
+    color: var(--text);
+    font-weight: 700;
+}
+
+.login-header p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.form-group {
+    margin-bottom: 18px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.form-group input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+}
+
+.btn-block {
+    width: 100%;
+    justify-content: center;
+    padding: 11px;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 10px;
+}
+
+.login-error {
+    background: #fee2e2;
+    color: #b91c1c;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    margin-bottom: 14px;
+    text-align: center;
+}
+
+/* User pill in header */
+.user-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f1f5f9;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.logout-btn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 0.95rem;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.2s;
+}
+
+.logout-btn:hover {
+    color: #b91c1c;
+}
+
+/* =========================================
+   App Layout
+   ========================================= */
 .app-header {
     height: 60px;
     background: #ffffff;
@@ -74,7 +195,6 @@ body {
     gap: 6px;
 }
 
-/* Main Layout */
 .app-body {
     flex: 1;
     display: flex;
@@ -142,7 +262,6 @@ body {
     outline: none;
 }
 
-/* Female Filter Toggle */
 .filter-toggle {
     margin-top: 12px;
     padding-top: 10px;

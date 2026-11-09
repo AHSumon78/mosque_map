@@ -18,115 +18,155 @@
 </head>
 <body>
 
-    <!-- Header -->
-    <header class="app-header">
-        <div class="brand">
-            <i class="fa-solid fa-mosque"></i>
-            <div>
-                <div>মসজিদ ম্যাপ <span class="subtitle">| Bangladesh Mosque Directory</span></div>
+    <!-- 1. Login Screen (Shown when unauthenticated) -->
+    <div id="loginScreen" class="login-wrapper">
+        <div class="login-card">
+            <div class="login-header">
+                <i class="fa-solid fa-mosque login-logo"></i>
+                <h2>মসজিদ ম্যাপ পোর্টাল</h2>
+                <p>অ্যাক্সেস করতে অনুগ্রহ করে লগইন করুন</p>
             </div>
+
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="usernameInput"><i class="fa-solid fa-user"></i> ইউজারনেম (Username)</label>
+                    <input type="text" id="usernameInput" placeholder="আপনার ইউজারনেম লিখুন" required autocomplete="username" />
+                </div>
+
+                <div class="form-group">
+                    <label for="passwordInput"><i class="fa-solid fa-lock"></i> পাসওয়ার্ড (Password)</label>
+                    <input type="password" id="passwordInput" placeholder="আপনার পাসওয়ার্ড লিখুন" required autocomplete="current-password" />
+                </div>
+
+                <div id="loginErrorMsg" class="login-error" style="display: none;"></div>
+
+                <button type="submit" id="loginSubmitBtn" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-right-to-bracket"></i> লগইন করুন
+                </button>
+            </form>
         </div>
-
-        <div class="header-actions">
-            <div class="stats-badge" id="statsBadge">
-                <i class="fa-solid fa-database"></i>
-                <span id="totalMosquesCount">লোড হচ্ছে...</span>
-            </div>
-            
-            <button class="btn btn-outline" id="locateBtn">
-                <i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশের মসজিদ
-            </button>
-
-            <button class="btn btn-primary" id="openImportBtn">
-                <i class="fa-solid fa-file-import"></i> CSV ইমপোর্ট করুন
-            </button>
-        </div>
-    </header>
-
-    <!-- Main Container -->
-    <div class="app-body">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-section">
-                <div class="search-box">
-                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" id="searchInput" placeholder="মসজিদের নাম দিয়ে খুঁজুন (যেমন: বায়তুল...)" />
-                </div>
-
-                <div class="radius-control">
-                    <span>সন্ধানের পরিধি (Radius):</span>
-                    <select id="radiusSelect">
-                        <option value="1000">১ কিমি (1 km)</option>
-                        <option value="2000" selected>২ কিমি (2 km)</option>
-                        <option value="5000">৫ কিমি (5 km)</option>
-                        <option value="10000">১০ কিমি (10 km)</option>
-                        <option value="20000">২০ কিমি (20 km)</option>
-                    </select>
-                </div>
-
-                <!-- Female Facility Filter -->
-                <div class="filter-toggle">
-                    <label class="switch-label">
-                        <input type="checkbox" id="femaleOnlyToggle" />
-                        <span class="slider"></span>
-                        <span class="label-text">
-                            <i class="fa-solid fa-person-dress" style="color: #db2777;"></i> শুধুমাত্র মহিলাদের নামাজের ব্যবস্থা
-                        </span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="results-header">
-                <span id="resultsCount">নিকটবর্তী মসজিদসমূহ</span>
-                <span id="searchStatus"></span>
-            </div>
-
-            <div class="results-list" id="resultsList">
-                <div style="text-align: center; color: var(--text-muted); padding: 40px 10px;">
-                    <i class="fa-solid fa-map-location-dot" style="font-size: 2.5rem; margin-bottom: 12px; opacity: 0.5;"></i>
-                    <p>ম্যাপে যেকোনো স্থানে ক্লিক করুন অথবা উপরে <b>"আমার আশেপাশের মসজিদ"</b> বাটনে চাপ দিন।</p>
-                </div>
-            </div>
-        </aside>
-
-        <!-- Map Container -->
-        <div id="map"></div>
     </div>
 
-    <!-- CSV Import Modal -->
-    <div class="modal-overlay" id="importModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-cloud-arrow-up"></i> নতুন CSV ডাটা ইমপোর্ট করুন</h3>
-                <button class="close-btn" id="closeImportBtn">&times;</button>
-            </div>
-
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-                যেকোনো বিভাগের স্ক্র্যাপ করা CSV ফাইল (যেমন <code>rajshahi_mosques.csv</code> অথবা <code>bangladesh_mosques.csv</code>) ড্র্যাগ & ড্রপ করুন।
-            </p>
-
-            <div class="dropzone" id="dropzone">
-                <i class="fa-solid fa-file-csv"></i>
-                <p>এখানে CSV ফাইল ড্র্যাগ করুন অথবা <b>ব্রাউজ করতে ক্লিক করুন</b></p>
-                <input type="file" id="fileInput" accept=".csv" style="display: none;" />
-            </div>
-
-            <div id="selectedFileName" style="margin-top: 10px; font-size: 0.85rem; font-weight: 600; color: var(--primary); display: none;"></div>
-
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+    <!-- 2. Main App Screen (Shown after successful login) -->
+    <div id="appContainer" style="display: none; height: 100vh; flex-direction: column;">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="brand">
+                <i class="fa-solid fa-mosque"></i>
+                <div>
+                    <div>মসজিদ ম্যাপ <span class="subtitle">| Bangladesh Mosque Directory</span></div>
                 </div>
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-align: right;" id="progressText">আপলোড হচ্ছে...</div>
             </div>
 
-            <div class="import-result" id="importResult"></div>
-
-            <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="btn btn-outline" id="cancelUploadBtn">বাতিল</button>
-                <button class="btn btn-primary" id="uploadBtn" disabled>
-                    <i class="fa-solid fa-upload"></i> ইমপোর্ট শুরু করুন
+            <div class="header-actions">
+                <div class="stats-badge" id="statsBadge">
+                    <i class="fa-solid fa-database"></i>
+                    <span id="totalMosquesCount">লোড হচ্ছে...</span>
+                </div>
+                
+                <button class="btn btn-outline" id="locateBtn">
+                    <i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশে
                 </button>
+
+                <button class="btn btn-primary" id="openImportBtn">
+                    <i class="fa-solid fa-file-import"></i> CSV ইমপোর্ট
+                </button>
+
+                <!-- User & Logout -->
+                <div class="user-pill">
+                    <i class="fa-solid fa-circle-user"></i>
+                    <span id="loggedInUser">Admin</span>
+                    <button id="logoutBtn" class="logout-btn" title="লগআউট">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Body -->
+        <div class="app-body">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="search-box">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="searchInput" placeholder="মসজিদের নাম দিয়ে খুঁজুন (যেমন: বায়তুল...)" />
+                    </div>
+
+                    <div class="radius-control">
+                        <span>সন্ধানের পরিধি:</span>
+                        <select id="radiusSelect">
+                            <option value="1000">১ কিমি</option>
+                            <option value="2000" selected>২ কিমি</option>
+                            <option value="5000">৫ কিমি</option>
+                            <option value="10000">১০ কিমি</option>
+                            <option value="20000">২০ কিমি</option>
+                        </select>
+                    </div>
+
+                    <!-- Female Facility Filter -->
+                    <div class="filter-toggle">
+                        <label class="switch-label">
+                            <input type="checkbox" id="femaleOnlyToggle" />
+                            <span class="label-text">
+                                <i class="fa-solid fa-person-dress" style="color: #db2777;"></i> শুধুমাত্র মহিলাদের ব্যবস্থা
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="results-header">
+                    <span id="resultsCount">নিকটবর্তী মসজিদসমূহ</span>
+                    <span id="searchStatus"></span>
+                </div>
+
+                <div class="results-list" id="resultsList">
+                    <div style="text-align: center; color: var(--text-muted); padding: 40px 10px;">
+                        <i class="fa-solid fa-map-location-dot" style="font-size: 2.5rem; margin-bottom: 12px; opacity: 0.5;"></i>
+                        <p>ম্যাপে যেকোনো স্থানে ক্লিক করুন অথবা উপরে <b>"আমার আশেপাশে"</b> বাটনে চাপ দিন।</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Map Container -->
+            <div id="map"></div>
+        </div>
+
+        <!-- CSV Import Modal -->
+        <div class="modal-overlay" id="importModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-cloud-arrow-up"></i> নতুন CSV ডাটা ইমপোর্ট করুন</h3>
+                    <button class="close-btn" id="closeImportBtn">&times;</button>
+                </div>
+
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+                    যেকোনো বিভাগের স্ক্র্যাপ করা CSV ফাইল ড্র্যাগ & ড্রপ করুন।
+                </p>
+
+                <div class="dropzone" id="dropzone">
+                    <i class="fa-solid fa-file-csv"></i>
+                    <p>এখানে CSV ফাইল ড্র্যাগ করুন অথবা <b>ব্রাউজ করতে ক্লিক করুন</b></p>
+                    <input type="file" id="fileInput" accept=".csv" style="display: none;" />
+                </div>
+
+                <div id="selectedFileName" style="margin-top: 10px; font-size: 0.85rem; font-weight: 600; color: var(--primary); display: none;"></div>
+
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-align: right;" id="progressText">আপলোড হচ্ছে...</div>
+                </div>
+
+                <div class="import-result" id="importResult"></div>
+
+                <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button class="btn btn-outline" id="cancelUploadBtn">বাতিল</button>
+                    <button class="btn btn-primary" id="uploadBtn" disabled>
+                        <i class="fa-solid fa-upload"></i> ইমপোর্ট শুরু করুন
+                    </button>
+                </div>
             </div>
         </div>
     </div>
