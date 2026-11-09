@@ -58,12 +58,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==========================================
 async function checkAuthAndInit() {
     authToken = localStorage.getItem('mosque_token');
+    const savedUser = localStorage.getItem('mosque_username') || 'Admin';
 
     if (!authToken) {
         showLoginScreen();
         return;
     }
 
+    // Instantly show the app screen (No reload flicker, zero latency)
+    showAppScreen(savedUser);
+
+    // Verify token with backend in background
     try {
         const res = await fetch(`${API_BASE}/auth/verify`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
@@ -71,12 +76,18 @@ async function checkAuthAndInit() {
         const data = await res.json();
 
         if (data.success && data.authenticated) {
-            showAppScreen(data.user?.username || 'Admin');
+            const confirmedUser = data.user?.username || savedUser;
+            document.getElementById('loggedInUser').innerText = confirmedUser;
+            localStorage.setItem('mosque_username', confirmedUser);
         } else {
+            // Token is revoked or invalid
+            localStorage.removeItem('mosque_token');
+            localStorage.removeItem('mosque_username');
             showLoginScreen();
         }
     } catch (err) {
-        showLoginScreen();
+        // If server is temporarily restarting or network blip, keep user on map!
+        console.warn('Auth verify network notice:', err.message);
     }
 }
 
@@ -128,6 +139,7 @@ function setupAuthListeners() {
 
             if (data.success && data.token) {
                 localStorage.setItem('mosque_token', data.token);
+                localStorage.setItem('mosque_username', data.user?.username || username);
                 showAppScreen(data.user?.username || username);
             } else {
                 loginErrorMsg.innerText = data.error || 'ভুল ইউজারনেম বা পাসওয়ার্ড!';
@@ -154,6 +166,7 @@ function setupAuthListeners() {
         } catch (err) {}
 
         localStorage.removeItem('mosque_token');
+        localStorage.removeItem('mosque_username');
         window.location.reload();
     });
 }

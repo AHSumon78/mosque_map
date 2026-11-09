@@ -78,6 +78,21 @@ async function initDB() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
+        // Persistent User Sessions Table (Survives PM2 & Server Restarts)
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token VARCHAR(64) NOT NULL UNIQUE,
+                user_id INT NOT NULL,
+                username VARCHAR(50) NOT NULL,
+                role VARCHAR(20) DEFAULT 'admin',
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_token (token),
+                INDEX idx_expires (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
         // Check if has_female_facility column exists (backward compatibility)
         const [colCheck] = await conn.query(`
             SELECT COLUMN_NAME 

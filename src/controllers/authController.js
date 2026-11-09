@@ -1,8 +1,39 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
 
-// In-memory active tokens store: token -> { id, username, role, createdAt }
+// In-memory active tokens cache: token -> { id, username, role, createdAt }
 const activeSessions = new Map();
+
+async function getSessionUser(token) {
+    if (!token) return null;
+
+    // Check in-memory cache first for fast response
+    if (activeSessions.has(token)) {
+        return activeSessions.get(token);
+    }
+
+    // Check MySQL user_sessions table (survives PM2 & server restarts)
+    try {
+        const [rows] = await pool.query(
+            'SELECT user_id, username, role, expires_at FROM user_sessions WHERE token = ? AND expires_at > NOW()',
+            [token]
+        );
+        if (rows.length > 0) {
+            const session = {
+                id: rows[0].user_id,
+                username: rows[0].username,
+                role: rows[0].role || 'admin',
+                createdAt: Date.now()
+            };
+            activeSessions.set(token, session);
+            return session;
+        }
+    } catch (e) {
+        // Table might not exist yet before init_db
+    }
+
+    return null;
+}
 
 function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -59,12 +90,25 @@ const authController = {
 
             if (user) {
                 const token = crypto.randomBytes(32).toString('hex');
-                activeSessions.set(token, {
+                const sessionData = {
                     id: user.id,
                     username: user.username,
                     role: user.role || 'admin',
                     createdAt: Date.now()
-                });
+                };
+
+                activeSessions.set(token, sessionData);
+
+                // Persist session to MySQL (Valid for 30 days, survives PM2/Server restarts)
+                try {
+                    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                    await pool.query(
+                        'INSERT INTO user_sessions (token, user_id, username, role, expires_at) VALUES (?, ?, ?, ?, ?)',
+                        [token, user.id, user.username, user.role || 'admin', expiresAt]
+                    );
+                } catch (sessErr) {
+                    console.error('Session persistence error:', sessErr.message);
+                }
 
                 return res.json({
                     success: true,
@@ -87,45 +131,56 @@ const authController = {
     /**
      * GET /api/v1/auth/verify
      */
-    verify(req, res) {
-        const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.startsWith('Bearer ') 
-            ? authHeader.split(' ')[1] 
-            : req.query.token;
+    async verify(req, res) {
+        try {
+            const authHeader = req.headers.authorization;
+            const token = authHeader && authHeader.startsWith('Bearer ') 
+                ? authHeader.split(' ')[1] 
+                : req.query.token;
 
-        if (token && activeSessions.has(token)) {
-            const session = activeSessions.get(token);
-            return res.json({
-                success: true,
-                authenticated: true,
-                user: { id: session.id, username: session.username, role: session.role }
-            });
-        } else {
-            return res.status(401).json({
-                success: false,
-                authenticated: false,
-                error: 'অননুমোদিত বা মেয়াদোত্তীর্ণ সেশন।'
-            });
+            const session = await getSessionUser(token);
+            if (session) {
+                return res.json({
+                    success: true,
+                    authenticated: true,
+                    user: { id: session.id, username: session.username, role: session.role }
+                });
+            } else {
+                return res.status(401).json({
+                    success: false,
+                    authenticated: false,
+                    error: 'অননুমোদিত বা মেয়াদোত্তীর্ণ সেশন।'
+                });
+            }
+        } catch (err) {
+            return res.status(500).json({ success: false, error: 'ভেরিফিকেশন ত্রুটি।' });
         }
     },
 
     /**
      * POST /api/v1/auth/logout
      */
-    logout(req, res) {
-        const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.startsWith('Bearer ') 
-            ? authHeader.split(' ')[1] 
-            : req.body.token;
+    async logout(req, res) {
+        try {
+            const authHeader = req.headers.authorization;
+            const token = authHeader && authHeader.startsWith('Bearer ') 
+                ? authHeader.split(' ')[1] 
+                : req.body.token;
 
-        if (token) {
-            activeSessions.delete(token);
+            if (token) {
+                activeSessions.delete(token);
+                try {
+                    await pool.query('DELETE FROM user_sessions WHERE token = ?', [token]);
+                } catch (e) {}
+            }
+
+            return res.json({
+                success: true,
+                message: 'সফলভাবে লগআউট হয়েছে।'
+            });
+        } catch (err) {
+            return res.json({ success: true, message: 'লগআউট হয়েছে।' });
         }
-
-        return res.json({
-            success: true,
-            message: 'সফলভাবে লগআউট হয়েছে।'
-        });
     },
 
     /**
@@ -277,22 +332,27 @@ const authController = {
     },
 
     /**
-     * Auth Middleware
+     * Auth Middleware (Supports in-memory cache and MySQL persistent sessions)
      */
-    requireAuth(req, res, next) {
-        const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.startsWith('Bearer ') 
-            ? authHeader.split(' ')[1] 
-            : req.query.token;
+    async requireAuth(req, res, next) {
+        try {
+            const authHeader = req.headers.authorization;
+            const token = authHeader && authHeader.startsWith('Bearer ') 
+                ? authHeader.split(' ')[1] 
+                : req.query.token;
 
-        if (token && activeSessions.has(token)) {
-            req.user = activeSessions.get(token);
-            next();
-        } else {
-            return res.status(401).json({
-                success: false,
-                error: 'অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।'
-            });
+            const session = await getSessionUser(token);
+            if (session) {
+                req.user = session;
+                next();
+            } else {
+                return res.status(401).json({
+                    success: false,
+                    error: 'অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।'
+                });
+            }
+        } catch (err) {
+            return res.status(500).json({ success: false, error: 'অথেনটিকেশন যাচাই ব্যর্থ।' });
         }
     }
 };
