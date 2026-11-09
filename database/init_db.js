@@ -3,8 +3,15 @@
  * Usage: node database/init_db.js (or npm run setup-db)
  */
 const mysql = require('mysql2/promise');
+const crypto = require('crypto');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    return `${salt}:${hash}`;
+}
 
 async function initDB() {
     console.log('====================================================');
@@ -32,7 +39,7 @@ async function initDB() {
         console.log(`✅ Database '${dbName}' ready.`);
         await rootConn.end();
 
-        // Step 2: Connect to the database and create/update table
+        // Step 2: Connect to the database and create/update tables
         const conn = await mysql.createConnection({
             host,
             user,
@@ -42,6 +49,7 @@ async function initDB() {
             charset: 'utf8mb4'
         });
 
+        // Mosques Table
         await conn.query(`
             CREATE TABLE IF NOT EXISTS mosques (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -58,7 +66,19 @@ async function initDB() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
-        // Check if has_female_facility column exists (for backward compatibility if table existed earlier)
+        // Users Table for Admin & Account Management
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(50) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(20) DEFAULT 'admin',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        // Check if has_female_facility column exists (backward compatibility)
         const [colCheck] = await conn.query(`
             SELECT COLUMN_NAME 
             FROM INFORMATION_SCHEMA.COLUMNS 
@@ -72,7 +92,17 @@ async function initDB() {
             console.log('✅ Added has_female_facility column successfully.');
         }
 
-        console.log(`✅ Table 'mosques' with SPATIAL INDEX and 'has_female_facility' column ready.`);
+        // Check if at least one admin user exists; if not, create default admin
+        const [userCheck] = await conn.query(`SELECT COUNT(*) as count FROM users`);
+        if (userCheck[0].count === 0) {
+            const defaultUser = process.env.ADMIN_USERNAME || 'admin';
+            const defaultPass = process.env.ADMIN_PASSWORD || 'admin123';
+            const hashed = hashPassword(defaultPass);
+            await conn.query(`INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')`, [defaultUser, hashed]);
+            console.log(`👤 Default admin account '${defaultUser}' created.`);
+        }
+
+        console.log(`✅ Table 'mosques' and 'users' ready.`);
 
         const [rows] = await conn.query('SELECT COUNT(*) as count FROM mosques');
         console.log(`📊 Current mosques in database: ${rows[0].count}`);

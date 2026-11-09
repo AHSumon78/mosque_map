@@ -72,6 +72,11 @@
                     <i class="fa-solid fa-file-import"></i> CSV ইমপোর্ট
                 </button>
 
+                <!-- Admin Settings Button -->
+                <button class="btn btn-outline" id="openAdminBtn" title="এডমিন সেটিংস ও একাউন্ট ম্যানেজমেন্ট">
+                    <i class="fa-solid fa-user-gear"></i> এডমিন সেটিংস
+                </button>
+
                 <!-- User & Logout -->
                 <div class="user-pill">
                     <i class="fa-solid fa-circle-user"></i>
@@ -116,14 +121,14 @@
                 </div>
 
                 <div class="results-header">
-                    <span id="resultsCount">নিকটবর্তী মসজিদসমূহ</span>
+                    <span id="resultsCount">মসজিদ তালিকা</span>
                     <span id="searchStatus"></span>
                 </div>
 
                 <div class="results-list" id="resultsList">
                     <div style="text-align: center; color: var(--text-muted); padding: 40px 10px;">
-                        <i class="fa-solid fa-map-location-dot" style="font-size: 2.5rem; margin-bottom: 12px; opacity: 0.5;"></i>
-                        <p>ম্যাপে যেকোনো স্থানে ক্লিক করুন অথবা উপরে <b>"আমার আশেপাশে"</b> বাটনে চাপ দিন।</p>
+                        <i class="fa-solid fa-spinner fa-spin fa-2x" style="margin-bottom: 12px; opacity: 0.5;"></i>
+                        <p>ডাটা লোড হচ্ছে...</p>
                     </div>
                 </div>
             </aside>
@@ -132,7 +137,76 @@
             <div id="map"></div>
         </div>
 
-        <!-- CSV Import Modal -->
+        <!-- 3. Admin Account Management Modal -->
+        <div class="modal-overlay" id="adminModal">
+            <div class="modal-content" style="max-width: 540px;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-user-shield"></i> এডমিন ও একাউন্ট ম্যানেজমেন্ট</h3>
+                    <button class="close-btn" id="closeAdminBtn">&times;</button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tab-header">
+                    <button class="tab-btn active" data-tab="tabChangePass">পাসওয়ার্ড পরিবর্তন</button>
+                    <button class="tab-btn" data-tab="tabNewUser">নতুন একাউন্ট তৈরি</button>
+                    <button class="tab-btn" data-tab="tabUserList">ইউজার তালিকা</button>
+                </div>
+
+                <div class="tab-body">
+                    <!-- Tab 1: Change Password -->
+                    <div class="tab-pane active" id="tabChangePass">
+                        <form id="changePassForm">
+                            <div class="form-group">
+                                <label>বর্তমান পাসওয়ার্ড:</label>
+                                <input type="password" id="currPassInput" required placeholder="বর্তমান পাসওয়ার্ড দিন" />
+                            </div>
+                            <div class="form-group">
+                                <label>নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর):</label>
+                                <input type="password" id="newPassInput" required minlength="6" placeholder="নতুন পাসওয়ার্ড দিন" />
+                            </div>
+                            <div id="passMsg" style="display:none; font-size:0.85rem; padding:8px; border-radius:6px; margin-bottom:12px;"></div>
+                            <button type="submit" class="btn btn-primary" style="width:100%;">
+                                <i class="fa-solid fa-key"></i> পাসওয়ার্ড আপডেট করুন
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Tab 2: Create New User -->
+                    <div class="tab-pane" id="tabNewUser" style="display:none;">
+                        <form id="createUserForm">
+                            <div class="form-group">
+                                <label>ইউজারনেম (Username):</label>
+                                <input type="text" id="newUsernameInput" required minlength="3" placeholder="যেমন: manager, admin2" />
+                            </div>
+                            <div class="form-group">
+                                <label>পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর):</label>
+                                <input type="password" id="newUserPassInput" required minlength="6" placeholder="গোপন পাসওয়ার্ড দিন" />
+                            </div>
+                            <div class="form-group">
+                                <label>ভূমিকা (Role):</label>
+                                <select id="newUserRoleSelect" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border);">
+                                    <option value="admin">এডমিন (সম্পূর্ণ অ্যাক্সেস)</option>
+                                    <option value="editor">এডিটর (ডাটা আপডেট ও ইমপোর্ট)</option>
+                                </select>
+                            </div>
+                            <div id="createUserMsg" style="display:none; font-size:0.85rem; padding:8px; border-radius:6px; margin-bottom:12px;"></div>
+                            <button type="submit" class="btn btn-primary" style="width:100%;">
+                                <i class="fa-solid fa-user-plus"></i> একাউন্ট খুলুন
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Tab 3: List Users -->
+                    <div class="tab-pane" id="tabUserList" style="display:none;">
+                        <div id="userListContainer" style="max-height: 250px; overflow-y: auto;">
+                            <div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> লোড হচ্ছে...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. CSV Import Modal -->
         <div class="modal-overlay" id="importModal">
             <div class="modal-content">
                 <div class="modal-header">
@@ -159,7 +233,7 @@
                     <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-align: right;" id="progressText">আপলোড হচ্ছে...</div>
                 </div>
 
-                <div class="import-result" id="importResult"></div>
+                <div class="import-result" id="importResult" style="display: none;"></div>
 
                 <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn btn-outline" id="cancelUploadBtn">বাতিল</button>
@@ -173,7 +247,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.js"></script>
     
     <!-- App JS -->
     <script src="js/app.js"></script>

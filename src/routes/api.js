@@ -53,13 +53,19 @@ router.post('/auth/login', authController.login);
 router.get('/auth/verify', authController.verify);
 router.post('/auth/logout', authController.logout);
 
+// Admin Account Management Routes (Protected)
+router.post('/auth/change-password', authController.requireAuth, authController.changePassword);
+router.get('/auth/users', authController.requireAuth, authController.listUsers);
+router.post('/auth/users', authController.requireAuth, authController.createUser);
+router.delete('/auth/users/:id', authController.requireAuth, authController.deleteUser);
+
 // Mosque Query Routes
 router.get('/mosques/nearby', mosqueController.getNearbyMosques);
 router.get('/mosques/search', mosqueController.searchMosques);
 router.get('/mosques/bounds', mosqueController.getMosquesInBounds);
 router.get('/mosques/stats', mosqueController.getStats);
 
-// Protected Routes (Require Login)
+// Protected Mosque Routes (Require Login)
 router.put('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
 router.patch('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
 router.post('/mosques/import', authController.requireAuth, upload.single('file'), importController.importCSV);

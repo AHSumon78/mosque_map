@@ -49,6 +49,15 @@ const mosqueController = {
 
             const [rows] = await pool.query(query, params);
 
+            const cleanRows = rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                latitude: parseFloat(r.latitude),
+                longitude: parseFloat(r.longitude),
+                has_female_facility: r.has_female_facility,
+                distance_meters: r.distance_meters !== null ? parseInt(r.distance_meters, 10) : undefined
+            }));
+
             return res.json({
                 success: true,
                 query: {
@@ -58,8 +67,8 @@ const mosqueController = {
                     female_only: femaleOnly,
                     limit: limit
                 },
-                total: rows.length,
-                data: rows
+                total: cleanRows.length,
+                data: cleanRows
             });
         } catch (error) {
             console.error('Error fetching nearby mosques:', error);
@@ -77,7 +86,7 @@ const mosqueController = {
     async searchMosques(req, res) {
         try {
             const keyword = req.query.q || '';
-            const limit = Math.min(parseInt(req.query.limit || '30', 10), 100);
+            const limit = Math.min(parseInt(req.query.limit || '40', 10), 100);
             const femaleOnly = req.query.female_only === 'true' || req.query.female_only === '1';
 
             if (!keyword.trim()) {
@@ -103,10 +112,18 @@ const mosqueController = {
 
             const [rows] = await pool.query(query, params);
 
+            const cleanRows = rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                latitude: parseFloat(r.latitude),
+                longitude: parseFloat(r.longitude),
+                has_female_facility: r.has_female_facility
+            }));
+
             return res.json({
                 success: true,
-                total: rows.length,
-                data: rows
+                total: cleanRows.length,
+                data: cleanRows
             });
         } catch (error) {
             console.error('Error searching mosques:', error);
@@ -154,10 +171,18 @@ const mosqueController = {
 
             const [rows] = await pool.query(query, params);
 
+            const cleanRows = rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                latitude: parseFloat(r.latitude),
+                longitude: parseFloat(r.longitude),
+                has_female_facility: r.has_female_facility
+            }));
+
             return res.json({
                 success: true,
-                total: rows.length,
-                data: rows
+                total: cleanRows.length,
+                data: cleanRows
             });
         } catch (error) {
             console.error('Error fetching mosques in bounds:', error);
@@ -169,9 +194,8 @@ const mosqueController = {
     },
 
     /**
-     * Update Mosque Information (e.g. Female prayer facilities, name)
+     * Update Mosque Information
      * PUT/PATCH /api/v1/mosques/:id
-     * Body: { has_female_facility: true|false|1|0, name: "optional new name" }
      */
     async updateMosque(req, res) {
         try {
@@ -218,13 +242,16 @@ const mosqueController = {
                 });
             }
 
-            // Fetch updated record
             const [rows] = await pool.query('SELECT id, name, latitude, longitude, has_female_facility, updated_at FROM mosques WHERE id = ?', [id]);
 
             return res.json({
                 success: true,
                 message: 'Mosque updated successfully.',
-                data: rows[0]
+                data: {
+                    ...rows[0],
+                    latitude: parseFloat(rows[0].latitude),
+                    longitude: parseFloat(rows[0].longitude)
+                }
             });
 
         } catch (error) {
@@ -237,7 +264,7 @@ const mosqueController = {
     },
 
     /**
-     * Mosque statistics (total and female-friendly count)
+     * Mosque statistics
      * GET /api/v1/mosques/stats
      */
     async getStats(req, res) {
