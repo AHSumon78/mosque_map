@@ -1,0 +1,31 @@
+{
+  "name": "mosque-map",
+  "version": "1.0.0",
+  "description": "Full-Stack Bangladesh Mosque Map & Nearby API with MySQL Spatial Support and CSV Importer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "setup-db": "node database/init_db.js",
+    "import:csv": "node database/import_cli.js"
+  },
+  "keywords": [
+    "mosque",
+    "bangladesh",
+    "maps",
+    "spatial",
+    "mysql",
+    "leaflet",
+    "express"
+  ],
+  "author": "MD. SUMON ALI",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "csv-parser": "^3.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.9.7"
+  }
+}
