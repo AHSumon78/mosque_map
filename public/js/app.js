@@ -585,6 +585,8 @@ function setupEventListeners() {
             progressFill.style.width = '100%';
 
             if (json.success) {
+                document.getElementById('progressText').innerText = '✅ ইমপোর্ট সম্পন্ন হয়েছে!';
+                importResult.style.display = 'block';
                 importResult.className = 'import-result success';
                 importResult.innerHTML = `
                     <b>🎉 সফলভাবে সম্পন্ন হয়েছে!</b><br>
@@ -594,11 +596,15 @@ function setupEventListeners() {
                 `;
                 fetchStats();
             } else {
+                document.getElementById('progressText').innerText = '❌ ইমপোর্ট ব্যর্থ হয়েছে!';
+                importResult.style.display = 'block';
                 importResult.className = 'import-result error';
                 importResult.innerText = `ত্রুটি: ${json.error || 'ইমপোর্ট করা সম্ভব হয়নি।'}`;
             }
         } catch (err) {
             progressFill.style.width = '100%';
+            document.getElementById('progressText').innerText = '❌ সংযোগ ত্রুটি!';
+            importResult.style.display = 'block';
             importResult.className = 'import-result error';
             importResult.innerText = `সার্ভারের সাথে সংযোগ ব্যর্থ হয়েছে: ${err.message}`;
         } finally {
