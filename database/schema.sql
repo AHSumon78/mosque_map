@@ -14,3 +14,4 @@ CREATE TABLE IF NOT EXISTS mosques (
     UNIQUE KEY uk_coords (latitude, longitude),
     SPATIAL INDEX(location)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

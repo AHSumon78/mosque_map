@@ -52,6 +52,10 @@ router.get('/mosques/search', mosqueController.searchMosques);
 router.get('/mosques/bounds', mosqueController.getMosquesInBounds);
 router.get('/mosques/stats', mosqueController.getStats);
 
+// Mosque Update Routes (Update name, female facility, etc.)
+router.put('/mosques/:id', mosqueController.updateMosque);
+router.patch('/mosques/:id', mosqueController.updateMosque);
+
 // CSV Import Route
 router.post('/mosques/import', upload.single('file'), importController.importCSV);
 

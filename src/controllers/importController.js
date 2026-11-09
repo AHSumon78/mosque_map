@@ -32,11 +32,16 @@ const importController = {
                         const lat = parseFloat(data.latitude || data.Latitude || data.lat);
                         const lng = parseFloat(data.longitude || data.Longitude || data.lng || data.lon);
 
+                        // Optional female facility detection
+                        const rawFemale = data.has_female_facility || data.female_facility || data.women_facility || data.female;
+                        const hasFemale = (rawFemale === '1' || rawFemale === 'true' || rawFemale === 'yes' || rawFemale === true) ? 1 : 0;
+
                         if (name && !isNaN(lat) && !isNaN(lng)) {
                             rows.push({
                                 name: String(name).trim(),
                                 latitude: lat,
-                                longitude: lng
+                                longitude: lng,
+                                has_female_facility: hasFemale
                             });
                         } else {
                             skippedRows++;
@@ -61,7 +66,7 @@ const importController = {
 
             for (let i = 0; i < rows.length; i += BATCH_SIZE) {
                 const batch = rows.slice(i, i + BATCH_SIZE);
-                const placeholders = batch.map(() => `(?, ?, ?, POINT(?, ?))`).join(', ');
+                const placeholders = batch.map(() => `(?, ?, ?, POINT(?, ?), ?)`).join(', ');
                 const values = [];
 
                 for (const item of batch) {
@@ -70,14 +75,20 @@ const importController = {
                         item.latitude,
                         item.longitude,
                         item.longitude, // POINT(lng, lat)
-                        item.latitude
+                        item.latitude,
+                        item.has_female_facility
                     );
                 }
 
                 const sql = `
-                    INSERT INTO mosques (name, latitude, longitude, location)
+                    INSERT INTO mosques (name, latitude, longitude, location, has_female_facility)
                     VALUES ${placeholders}
-                    ON DUPLICATE KEY UPDATE name = VALUES(name);
+                    ON DUPLICATE KEY UPDATE 
+                        name = VALUES(name),
+                        has_female_facility = CASE 
+                            WHEN VALUES(has_female_facility) = 1 THEN 1 
+                            ELSE mosques.has_female_facility 
+                        END;
                 `;
 
                 await pool.query(sql, values);
@@ -87,15 +98,17 @@ const importController = {
             // Cleanup temp file
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-            // Fetch updated database count
+            // Fetch updated database stats
             const [stats] = await pool.query('SELECT COUNT(*) as total FROM mosques');
+            const [femaleStats] = await pool.query('SELECT COUNT(*) as female_total FROM mosques WHERE has_female_facility = 1');
 
             return res.json({
                 success: true,
                 message: `Successfully processed ${processed} mosques from CSV.`,
                 total_processed: processed,
                 skipped_invalid: skippedRows,
-                total_in_database: stats[0].total
+                total_in_database: stats[0].total,
+                female_facility_mosques: femaleStats[0].female_total
             });
 
         } catch (error) {

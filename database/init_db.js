@@ -32,7 +32,7 @@ async function initDB() {
         console.log(`✅ Database '${dbName}' ready.`);
         await rootConn.end();
 
-        // Step 2: Connect to the database and create table
+        // Step 2: Connect to the database and create/update table
         const conn = await mysql.createConnection({
             host,
             user,
@@ -49,13 +49,30 @@ async function initDB() {
                 latitude DECIMAL(10, 7) NOT NULL,
                 longitude DECIMAL(10, 7) NOT NULL,
                 location POINT NOT NULL,
+                has_female_facility BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY uk_coords (latitude, longitude),
-                SPATIAL INDEX(location)
+                SPATIAL INDEX(location),
+                INDEX idx_female (has_female_facility)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
-        console.log(`✅ Table 'mosques' with SPATIAL INDEX and UNIQUE coordinates ready.`);
+        // Check if has_female_facility column exists (for backward compatibility if table existed earlier)
+        const [colCheck] = await conn.query(`
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'mosques' AND COLUMN_NAME = 'has_female_facility'
+        `, [dbName]);
+
+        if (colCheck.length === 0) {
+            console.log('🔄 Adding has_female_facility column to existing table...');
+            await conn.query(`ALTER TABLE mosques ADD COLUMN has_female_facility BOOLEAN DEFAULT FALSE;`);
+            await conn.query(`ALTER TABLE mosques ADD INDEX idx_female (has_female_facility);`);
+            console.log('✅ Added has_female_facility column successfully.');
+        }
+
+        console.log(`✅ Table 'mosques' with SPATIAL INDEX and 'has_female_facility' column ready.`);
 
         const [rows] = await conn.query('SELECT COUNT(*) as count FROM mosques');
         console.log(`📊 Current mosques in database: ${rows[0].count}`);

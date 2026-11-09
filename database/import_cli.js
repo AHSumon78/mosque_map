@@ -1,9 +1,8 @@
 /**
  * CLI CSV Importer for Mosque Map
+ * Supports female prayer space facility import
  * Usage:
  *   node database/import_cli.js <path-to-csv>
- * Example:
- *   node database/import_cli.js rajshahi_mosques.csv
  */
 const fs = require('fs');
 const path = require('path');
@@ -57,11 +56,16 @@ async function runImport() {
                 const lat = parseFloat(data.latitude || data.Latitude || data.lat);
                 const lng = parseFloat(data.longitude || data.Longitude || data.lng || data.lon);
 
+                // Optional female facility detection
+                const rawFemale = data.has_female_facility || data.female_facility || data.women_facility || data.female;
+                const hasFemale = (rawFemale === '1' || rawFemale === 'true' || rawFemale === 'yes' || rawFemale === true) ? 1 : 0;
+
                 if (name && !isNaN(lat) && !isNaN(lng)) {
                     rows.push({
                         name: String(name).trim(),
                         latitude: lat,
-                        longitude: lng
+                        longitude: lng,
+                        has_female_facility: hasFemale
                     });
                 }
             })
@@ -81,7 +85,7 @@ async function runImport() {
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
         const batch = rows.slice(i, i + BATCH_SIZE);
-        const placeholders = batch.map(() => `(?, ?, ?, POINT(?, ?))`).join(', ');
+        const placeholders = batch.map(() => `(?, ?, ?, POINT(?, ?), ?)`).join(', ');
         const values = [];
 
         for (const item of batch) {
@@ -90,14 +94,20 @@ async function runImport() {
                 item.latitude,
                 item.longitude,
                 item.longitude, // POINT(X = lng, Y = lat)
-                item.latitude
+                item.latitude,
+                item.has_female_facility
             );
         }
 
         const sql = `
-            INSERT INTO mosques (name, latitude, longitude, location)
+            INSERT INTO mosques (name, latitude, longitude, location, has_female_facility)
             VALUES ${placeholders}
-            ON DUPLICATE KEY UPDATE name = VALUES(name);
+            ON DUPLICATE KEY UPDATE 
+                name = VALUES(name),
+                has_female_facility = CASE 
+                    WHEN VALUES(has_female_facility) = 1 THEN 1 
+                    ELSE mosques.has_female_facility 
+                END;
         `;
 
         await conn.query(sql, values);
@@ -107,9 +117,12 @@ async function runImport() {
 
     console.log('\n');
     const [stats] = await conn.query('SELECT COUNT(*) as total FROM mosques');
+    const [femaleStats] = await conn.query('SELECT COUNT(*) as female_count FROM mosques WHERE has_female_facility = 1');
+    
     console.log('====================================================');
     console.log(`🎉 Import completed successfully!`);
     console.log(`🕌 Total unique mosques in database: ${stats[0].total}`);
+    console.log(`🧕 Mosques with female prayer facility: ${femaleStats[0].female_count}`);
     console.log('====================================================');
 
     await conn.end();

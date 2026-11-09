@@ -1,5 +1,6 @@
 /**
  * Bangladesh Mosque Map - Frontend Application
+ * Supports Spatial Nearby Search, Female Prayer Facilities, and Live Facility Updates
  */
 
 // Global State
@@ -10,13 +11,22 @@ let userPinMarker = null;
 let currentCenter = { lat: 23.8103, lng: 90.4125 }; // Default Dhaka center
 let selectedFile = null;
 
-// Mosque Icon
+// Normal Mosque Icon
 const mosqueIcon = L.divIcon({
     html: '<div style="background-color: #059669; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white;"><i class="fa-solid fa-mosque" style="font-size: 13px;"></i></div>',
     className: 'custom-mosque-marker',
     iconSize: [28, 28],
     iconAnchor: [14, 14],
     popupAnchor: [0, -14]
+});
+
+// Mosque with Female Facility Icon (Pink/Magenta Badge)
+const femaleMosqueIcon = L.divIcon({
+    html: '<div style="background-color: #db2777; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 6px rgba(219,39,119,0.4); border: 2px solid white;"><i class="fa-solid fa-person-dress" style="font-size: 15px;"></i></div>',
+    className: 'custom-female-marker',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -15]
 });
 
 // User Location Pin Icon
@@ -64,13 +74,17 @@ function initMap() {
     });
 }
 
-// 2. Fetch Total Mosque Stats
+// 2. Fetch Total Mosque & Female Facility Stats
 async function fetchStats() {
     try {
         const res = await fetch('/api/v1/mosques/stats');
         const data = await res.json();
         if (data.success) {
-            document.getElementById('totalMosquesCount').innerText = `${Number(data.total_mosques).toLocaleString('en-US')} টি মসজিদ ডাটাবেসে আছে`;
+            const total = Number(data.total_mosques).toLocaleString('en-US');
+            const female = Number(data.female_facility_mosques || 0).toLocaleString('en-US');
+            document.getElementById('totalMosquesCount').innerHTML = `
+                <b>${total}</b> টি মসজিদ (${female} টিতে মহিলাদের ব্যবস্থা)
+            `;
         }
     } catch (err) {
         document.getElementById('totalMosquesCount').innerText = 'অফলাইন';
@@ -81,6 +95,7 @@ async function fetchStats() {
 async function searchNearbyAt(lat, lng) {
     currentCenter = { lat, lng };
     const radius = parseInt(document.getElementById('radiusSelect').value, 10);
+    const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
     const resultsList = document.getElementById('resultsList');
     const searchStatus = document.getElementById('searchStatus');
 
@@ -96,14 +111,15 @@ async function searchNearbyAt(lat, lng) {
     if (currentCircle) map.removeLayer(currentCircle);
     currentCircle = L.circle([lat, lng], {
         radius: radius,
-        color: '#059669',
-        fillColor: '#10b981',
+        color: femaleOnly ? '#db2777' : '#059669',
+        fillColor: femaleOnly ? '#f472b6' : '#10b981',
         fillOpacity: 0.12,
         weight: 1.5
     }).addTo(map);
 
     try {
-        const res = await fetch(`/api/v1/mosques/nearby?lat=${lat}&lng=${lng}&radius=${radius}&limit=100`);
+        const femaleParam = femaleOnly ? '&female_only=1' : '';
+        const res = await fetch(`/api/v1/mosques/nearby?lat=${lat}&lng=${lng}&radius=${radius}&limit=100${femaleParam}`);
         const json = await res.json();
 
         if (!json.success || !json.data || json.data.length === 0) {
@@ -111,8 +127,8 @@ async function searchNearbyAt(lat, lng) {
             resultsList.innerHTML = `
                 <div style="text-align: center; color: var(--text-muted); padding: 30px;">
                     <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; margin-bottom: 8px;"></i>
-                    <p>এই ${radius >= 1000 ? (radius / 1000) + ' কিমি' : radius + ' মিটার'} পরিধির মধ্যে কোনো মসজিদ পাওয়া যায়নি।</p>
-                    <p style="font-size: 0.8rem; margin-top: 4px;">পরিধি বাড়িয়ে দেখুন অথবা অন্য স্থানে ক্লিক করুন।</p>
+                    <p>এই ${radius >= 1000 ? (radius / 1000) + ' কিমি' : radius + ' মিটার'} পরিধির মধ্যে ${femaleOnly ? 'মহিলাদের ব্যবস্থাযুক্ত ' : ''}কোনো মসজিদ পাওয়া যায়নি।</p>
+                    <p style="font-size: 0.8rem; margin-top: 4px;">পরিধি বাড়িয়ে দেখুন অথবা ফিল্টার পরিবর্তন করুন।</p>
                 </div>
             `;
             markerCluster.clearLayers();
@@ -138,7 +154,7 @@ function renderMosqueResults(mosques) {
     const list = document.getElementById('resultsList');
     list.innerHTML = '';
 
-    mosques.forEach((m, idx) => {
+    mosques.forEach((m) => {
         const card = document.createElement('div');
         card.className = 'mosque-card';
         card.id = `card-${m.id}`;
@@ -147,16 +163,27 @@ function renderMosqueResults(mosques) {
             ? (m.distance_meters >= 1000 ? (m.distance_meters / 1000).toFixed(1) + ' km' : m.distance_meters + ' m') 
             : '';
 
+        const hasFemale = m.has_female_facility === 1 || m.has_female_facility === true;
+        const femaleTagHtml = hasFemale 
+            ? `<span class="female-tag available"><i class="fa-solid fa-person-dress"></i> মহিলাদের ব্যবস্থা আছে</span>`
+            : `<span class="female-tag unavailable"><i class="fa-solid fa-minus"></i> মহিলাদের ব্যবস্থা নেই</span>`;
+
         card.innerHTML = `
-            <h4><i class="fa-solid fa-mosque" style="color: var(--primary); margin-right: 6px;"></i>${m.name}</h4>
+            <h4><i class="fa-solid fa-mosque" style="color: ${hasFemale ? '#db2777' : 'var(--primary)'}; margin-right: 6px;"></i>${m.name}</h4>
             <div class="mosque-meta">
                 <span><i class="fa-solid fa-location-dot"></i> ${m.latitude.toFixed(5)}, ${m.longitude.toFixed(5)}</span>
                 ${distText ? `<span class="distance-tag">${distText} দূরে</span>` : ''}
             </div>
-            <div style="margin-top: 8px; display: flex; gap: 8px;">
-                <a href="https://www.google.com/maps/dir/?api=1&destination=${m.latitude},${m.longitude}" target="_blank" class="btn btn-outline" style="padding: 3px 8px; font-size: 0.75rem;">
+            <div style="margin-bottom: 8px;">
+                ${femaleTagHtml}
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <a href="https://www.google.com/maps/dir/?api=1&destination=${m.latitude},${m.longitude}" target="_blank" class="btn btn-outline btn-sm">
                     <i class="fa-solid fa-diamond-turn-right"></i> নেভিগেশন
                 </a>
+                <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); toggleFemaleFacility(${m.id}, ${hasFemale ? 1 : 0})">
+                    <i class="fa-solid fa-pen-to-square"></i> ${hasFemale ? 'ব্যবস্থা সরান' : 'ব্যবস্থা যুক্ত করুন'}
+                </button>
             </div>
         `;
 
@@ -175,21 +202,35 @@ function renderMapMarkers(mosques) {
     markerCluster.clearLayers();
 
     mosques.forEach(m => {
-        const marker = L.marker([m.latitude, m.longitude], { icon: mosqueIcon });
+        const hasFemale = m.has_female_facility === 1 || m.has_female_facility === true;
+        const marker = L.marker([m.latitude, m.longitude], { 
+            icon: hasFemale ? femaleMosqueIcon : mosqueIcon 
+        });
+
         const distInfo = m.distance_meters !== undefined 
-            ? `<div style="font-size:0.8rem; color:#0369a1; margin-bottom:6px;"><b>দূরত্ব:</b> ${m.distance_meters >= 1000 ? (m.distance_meters/1000).toFixed(2) + ' কিমি' : m.distance_meters + ' মিটার'}</div>` 
+            ? `<div style="font-size:0.8rem; color:#0369a1; margin-bottom:4px;"><b>দূরত্ব:</b> ${m.distance_meters >= 1000 ? (m.distance_meters/1000).toFixed(2) + ' কিমি' : m.distance_meters + ' মিটার'}</div>` 
             : '';
 
+        const femaleBadge = hasFemale
+            ? `<div style="margin-bottom:6px;"><span style="background:#fce7f3; color:#be185d; padding:2px 8px; border-radius:10px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-person-dress"></i> মহিলাদের নামাজের ব্যবস্থা আছে</span></div>`
+            : `<div style="margin-bottom:6px;"><span style="background:#f1f5f9; color:#64748b; padding:2px 8px; border-radius:10px; font-size:0.75rem;"><i class="fa-solid fa-minus"></i> মহিলাদের ব্যবস্থা নেই</span></div>`;
+
         marker.bindPopup(`
-            <div style="font-family: inherit;">
-                <h3 style="margin: 0 0 4px 0; font-size: 1rem; color: #059669;">${m.name}</h3>
+            <div style="font-family: inherit; min-width: 180px;">
+                <h3 style="margin: 0 0 4px 0; font-size: 0.95rem; color: ${hasFemale ? '#db2777' : '#059669'};">${m.name}</h3>
                 ${distInfo}
-                <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 8px;">
+                ${femaleBadge}
+                <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 8px;">
                     📍 ${m.latitude.toFixed(5)}, ${m.longitude.toFixed(5)}
                 </div>
-                <a href="https://www.google.com/maps/search/?api=1&query=${m.latitude},${m.longitude}" target="_blank" style="display:inline-block; background:#059669; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem; font-weight:500;">
-                    গুগল ম্যাপে দেখুন
-                </a>
+                <div style="display:flex; gap:6px;">
+                    <a href="https://www.google.com/maps/search/?api=1&query=${m.latitude},${m.longitude}" target="_blank" style="display:inline-block; background:#059669; color:white; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:500;">
+                        গুগল ম্যাপ
+                    </a>
+                    <button onclick="toggleFemaleFacility(${m.id}, ${hasFemale ? 1 : 0})" style="background:#db2777; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;">
+                        ${hasFemale ? 'ব্যবস্থা বাদ দিন' : 'মহিলাদের ব্যবস্থা আছে'}
+                    </button>
+                </div>
             </div>
         `);
 
@@ -197,11 +238,44 @@ function renderMapMarkers(mosques) {
     });
 }
 
-// 6. Name Search Handler
+// 6. Toggle Female Facility via API
+async function toggleFemaleFacility(id, currentStatus) {
+    const newStatus = currentStatus === 1 ? false : true;
+    const confirmMsg = newStatus 
+        ? "আপনি কি নিশ্চিত এই মসজিদে মহিলাদের নামাজের ব্যবস্থা আছে?" 
+        : "আপনি কি নিশ্চিত এই মসজিদ থেকে মহিলাদের নামাজের ব্যবস্থা অপশন সরাতে চান?";
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const res = await fetch(`/api/v1/mosques/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ has_female_facility: newStatus })
+        });
+
+        const json = await res.json();
+        if (json.success) {
+            alert('✅ মসজিদের তথ্য সফলভাবে আপডেট হয়েছে!');
+            fetchStats();
+            // Refresh current query
+            if (userPinMarker) {
+                searchNearbyAt(currentCenter.lat, currentCenter.lng);
+            }
+        } else {
+            alert('❌ আপডেট ব্যর্থ: ' + (json.error || 'অজানা ত্রুটি'));
+        }
+    } catch (err) {
+        alert('❌ সার্ভারের সাথে সংযোগ ব্যর্থ: ' + err.message);
+    }
+}
+
+// 7. Name Search Handler
 let searchTimeout;
 document.getElementById('searchInput').addEventListener('input', (e) => {
     clearTimeout(searchTimeout);
     const query = e.target.value.trim();
+    const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
 
     if (!query) {
         if (userPinMarker) {
@@ -217,7 +291,8 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
         resultsList.innerHTML = '<div style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>';
 
         try {
-            const res = await fetch(`/api/v1/mosques/search?q=${encodeURIComponent(query)}&limit=40`);
+            const femaleParam = femaleOnly ? '&female_only=1' : '';
+            const res = await fetch(`/api/v1/mosques/search?q=${encodeURIComponent(query)}&limit=40${femaleParam}`);
             const json = await res.json();
 
             if (!json.success || json.data.length === 0) {
@@ -245,8 +320,18 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
     }, 350);
 });
 
-// 7. Setup Event Listeners
+// 8. Setup Event Listeners
 function setupEventListeners() {
+    // Female Only Toggle
+    document.getElementById('femaleOnlyToggle').addEventListener('change', () => {
+        const query = document.getElementById('searchInput').value.trim();
+        if (query) {
+            document.getElementById('searchInput').dispatchEvent(new Event('input'));
+        } else if (userPinMarker) {
+            searchNearbyAt(currentCenter.lat, currentCenter.lng);
+        }
+    });
+
     // Locate Me
     document.getElementById('locateBtn').addEventListener('click', () => {
         if (!navigator.geolocation) {
@@ -377,7 +462,8 @@ function setupEventListeners() {
                 importResult.innerHTML = `
                     <b>🎉 সফলভাবে সম্পন্ন হয়েছে!</b><br>
                     • মোট প্রসেস করা হয়েছে: ${Number(json.total_processed).toLocaleString('en-US')} টি মসজিদ<br>
-                    • ডাটাবেসে মোট মজুদ: <b>${Number(json.total_in_database).toLocaleString('en-US')} টি</b>
+                    • ডাটাবেসে মোট মজুদ: <b>${Number(json.total_in_database).toLocaleString('en-US')} টি</b><br>
+                    • মহিলাদের ব্যবস্থাযুক্ত মসজিদ: <b>${Number(json.female_facility_mosques || 0).toLocaleString('en-US')} টি</b>
                 `;
                 fetchStats();
             } else {

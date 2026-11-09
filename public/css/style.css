@@ -2,6 +2,8 @@
     --primary: #059669;
     --primary-hover: #047857;
     --primary-light: #d1fae5;
+    --female-color: #db2777;
+    --female-bg: #fdf2f8;
     --dark: #0f172a;
     --gray-bg: #f8fafc;
     --card-bg: #ffffff;
@@ -140,6 +142,30 @@ body {
     outline: none;
 }
 
+/* Female Filter Toggle */
+.filter-toggle {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+}
+
+.switch-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text);
+    gap: 8px;
+}
+
+.switch-label input {
+    accent-color: var(--female-color);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
 /* Results List */
 .results-header {
     padding: 12px 16px;
@@ -192,6 +218,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    margin-bottom: 6px;
 }
 
 .distance-tag {
@@ -200,6 +227,27 @@ body {
     padding: 2px 6px;
     border-radius: 4px;
     font-weight: 600;
+}
+
+.female-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.female-tag.available {
+    background: #fce7f3;
+    color: #be185d;
+    border: 1px solid #fbcfe8;
+}
+
+.female-tag.unavailable {
+    background: #f1f5f9;
+    color: #64748b;
 }
 
 /* Map */
@@ -240,6 +288,11 @@ body {
 
 .btn-outline:hover {
     background: #f1f5f9;
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 0.75rem;
 }
 
 /* Modal */
