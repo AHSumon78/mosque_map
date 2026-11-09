@@ -15,7 +15,7 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Multer setup for CSV file uploads
+// Multer setup for CSV file uploads (Supports up to 100MB CSV files)
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, uploadDir);
@@ -28,12 +28,13 @@ const storage = multer.diskStorage({
 
 const upload = multer({
     storage,
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max file size
     fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.csv' || file.mimetype.includes('csv') || file.mimetype.includes('text') || file.mimetype.includes('excel')) {
             cb(null, true);
         } else {
-            cb(new Error('Only .csv files are supported.'));
+            cb(new Error('শুধুমাত্র .csv ফরম্যাটের ফাইল সমর্থিত।'));
         }
     }
 });
@@ -52,7 +53,7 @@ router.post('/auth/login', authController.login);
 router.get('/auth/verify', authController.verify);
 router.post('/auth/logout', authController.logout);
 
-// Mosque Query Routes (Public or protected)
+// Mosque Query Routes
 router.get('/mosques/nearby', mosqueController.getNearbyMosques);
 router.get('/mosques/search', mosqueController.searchMosques);
 router.get('/mosques/bounds', mosqueController.getMosquesInBounds);

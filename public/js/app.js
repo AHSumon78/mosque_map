@@ -601,6 +601,8 @@ function setupEventListeners() {
             progressFill.style.width = '100%';
             importResult.className = 'import-result error';
             importResult.innerText = `সার্ভারের সাথে সংযোগ ব্যর্থ হয়েছে: ${err.message}`;
+        } finally {
+            uploadBtn.disabled = false;
         }
     });
 }

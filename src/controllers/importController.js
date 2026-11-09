@@ -14,7 +14,7 @@ const importController = {
         if (!req.file) {
             return res.status(400).json({
                 success: false,
-                error: 'No CSV file was uploaded. Please attach a CSV file.'
+                error: 'কোনো CSV ফাইল পাওয়া যায়নি। অনুগ্রহ করে একটি .csv ফাইল আপলোড করুন।'
             });
         }
 
@@ -23,17 +23,24 @@ const importController = {
         let skippedRows = 0;
 
         try {
-            // Parse CSV stream
+            // Parse CSV stream with BOM strip
             await new Promise((resolve, reject) => {
                 fs.createReadStream(filePath)
                     .pipe(csv())
                     .on('data', (data) => {
-                        const name = data.name || data.Name;
-                        const lat = parseFloat(data.latitude || data.Latitude || data.lat);
-                        const lng = parseFloat(data.longitude || data.Longitude || data.lng || data.lon);
+                        // Strip UTF-8 BOM (\ufeff) and normalize keys
+                        const cleanRow = {};
+                        for (const key of Object.keys(data)) {
+                            const cleanKey = key.replace(/^\ufeff/, '').trim().toLowerCase();
+                            cleanRow[cleanKey] = data[key];
+                        }
+
+                        const name = cleanRow['name'] || cleanRow['mosque_name'] || cleanRow['title'];
+                        const lat = parseFloat(cleanRow['latitude'] || cleanRow['lat']);
+                        const lng = parseFloat(cleanRow['longitude'] || cleanRow['lng'] || cleanRow['lon']);
 
                         // Optional female facility detection
-                        const rawFemale = data.has_female_facility || data.female_facility || data.women_facility || data.female;
+                        const rawFemale = cleanRow['has_female_facility'] || cleanRow['female_facility'] || cleanRow['women_facility'] || cleanRow['female'];
                         const hasFemale = (rawFemale === '1' || rawFemale === 'true' || rawFemale === 'yes' || rawFemale === true) ? 1 : 0;
 
                         if (name && !isNaN(lat) && !isNaN(lng)) {
@@ -52,11 +59,10 @@ const importController = {
             });
 
             if (rows.length === 0) {
-                // Cleanup temp file
                 if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
                 return res.status(400).json({
                     success: false,
-                    error: 'CSV contained no valid mosque rows with name, latitude, and longitude.'
+                    error: 'CSV ফাইলে নাম (name), অক্ষাংশ (latitude) এবং দ্রাঘিমাংশ (longitude) কলামের কোনো সঠিক রেকর্ড পাওয়া যায়নি।'
                 });
             }
 
@@ -104,7 +110,7 @@ const importController = {
 
             return res.json({
                 success: true,
-                message: `Successfully processed ${processed} mosques from CSV.`,
+                message: `সফলভাবে ${processed} টি মসজিদ CSV থেকে প্রসেস ও ডাটাবেসে সেভ করা হয়েছে।`,
                 total_processed: processed,
                 skipped_invalid: skippedRows,
                 total_in_database: stats[0].total,
@@ -113,14 +119,13 @@ const importController = {
 
         } catch (error) {
             console.error('Error importing CSV:', error);
-            // Cleanup temp file
             if (fs.existsSync(filePath)) {
                 try { fs.unlinkSync(filePath); } catch (e) {}
             }
 
             return res.status(500).json({
                 success: false,
-                error: `CSV Import error: ${error.message}`
+                error: `CSV Import Error: ${error.message}`
             });
         }
     }

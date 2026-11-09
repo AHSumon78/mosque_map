@@ -1,6 +1,6 @@
 /**
  * CLI CSV Importer for Mosque Map
- * Supports female prayer space facility import
+ * Supports BOM stripping and female prayer space facility import
  * Usage:
  *   node database/import_cli.js <path-to-csv>
  */
@@ -44,7 +44,7 @@ async function runImport() {
         process.exit(1);
     }
 
-    // Read and parse CSV
+    // Read and parse CSV with BOM stripping
     const rows = [];
     console.log('⏳ Parsing CSV data...');
 
@@ -52,12 +52,19 @@ async function runImport() {
         fs.createReadStream(resolvedPath)
             .pipe(csv())
             .on('data', (data) => {
-                const name = data.name || data.Name;
-                const lat = parseFloat(data.latitude || data.Latitude || data.lat);
-                const lng = parseFloat(data.longitude || data.Longitude || data.lng || data.lon);
+                // Strip UTF-8 BOM (\ufeff) and normalize keys
+                const cleanRow = {};
+                for (const key of Object.keys(data)) {
+                    const cleanKey = key.replace(/^\ufeff/, '').trim().toLowerCase();
+                    cleanRow[cleanKey] = data[key];
+                }
+
+                const name = cleanRow['name'] || cleanRow['mosque_name'] || cleanRow['title'];
+                const lat = parseFloat(cleanRow['latitude'] || cleanRow['lat']);
+                const lng = parseFloat(cleanRow['longitude'] || cleanRow['lng'] || cleanRow['lon']);
 
                 // Optional female facility detection
-                const rawFemale = data.has_female_facility || data.female_facility || data.women_facility || data.female;
+                const rawFemale = cleanRow['has_female_facility'] || cleanRow['female_facility'] || cleanRow['women_facility'] || cleanRow['female'];
                 const hasFemale = (rawFemale === '1' || rawFemale === 'true' || rawFemale === 'yes' || rawFemale === true) ? 1 : 0;
 
                 if (name && !isNaN(lat) && !isNaN(lng)) {

@@ -7,7 +7,6 @@ const apiRoutes = require('./src/routes/api');
 
 const app = express();
 const PORT = process.env.PORT || 7080;
-const HOST = process.env.HOST || '127.0.0.1'; // Bind to localhost for security behind reverse proxy
 
 // Middlewares
 app.use(cors());
@@ -31,11 +30,12 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
 });
 
-// Start Server strictly on localhost
-app.listen(PORT, HOST, () => {
+// Start Server
+app.listen(PORT, () => {
     console.log('====================================================');
     console.log(`🕌 Bangladesh Mosque Map & API Service`);
-    console.log(`🚀 Server bound securely to: http://${HOST}:${PORT}`);
-    console.log(`🌐 Public Access via Nginx HTTPS reverse proxy`);
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌐 Web UI: http://localhost:${PORT}`);
+    console.log(`📡 API Endpoints: http://localhost:${PORT}/api/v1/health`);
     console.log('====================================================');
 });
