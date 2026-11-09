@@ -175,13 +175,18 @@ function initMap() {
         maxZoom: 19
     }).addTo(map);
 
-    // Marker Cluster Group
-    markerCluster = L.markerClusterGroup({
-        chunkedLoading: true,
-        maxClusterRadius: 45,
-        spiderfyOnMaxZoom: true,
-        showCoverageOnHover: false
-    });
+    // Marker Cluster Group (with safe fallback)
+    if (typeof L.markerClusterGroup === 'function') {
+        markerCluster = L.markerClusterGroup({
+            chunkedLoading: true,
+            maxClusterRadius: 45,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false
+        });
+    } else {
+        console.warn('MarkerCluster not loaded, falling back to L.featureGroup');
+        markerCluster = L.featureGroup();
+    }
     map.addLayer(markerCluster);
 
     // Initial check of zoom gate
