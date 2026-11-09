@@ -1,23 +1,28 @@
 /**
  * Bangladesh Mosque Map - Frontend Application
- * Fully responsive, with Leaflet clustering, Spatial queries, Admin Account Management, and Live Data
+ * Designed for 100,000+ Mosques with Google Maps-style Zoom-Gated Viewports,
+ * Instant Debounced Search, Radius Nearby, Female Facility Tracking, and Admin Account Management.
  */
 
 // Compute Dynamic API Base URL
 const currentPath = window.location.pathname.replace(/\/+$/, '');
 const API_BASE = (currentPath ? currentPath : '') + '/api/v1';
 
-// Global State
+// Global Constants & State
+const ZOOM_THRESHOLD = 13; // Mosques only render at Zoom >= 13 for optimal performance
 let map = null;
 let markerCluster = null;
 let currentCircle = null;
 let userPinMarker = null;
-let currentCenter = { lat: 24.3636, lng: 88.6241 }; // Default centered near Rajshahi/Bangladesh
+let activePopupMarker = null;
+let currentCenter = { lat: 24.3636, lng: 88.6241 }; // Default centered near Bangladesh / Rajshahi
 let selectedFile = null;
 let authToken = localStorage.getItem('mosque_token');
-let isInitialLoaded = false;
+let searchTimeout = null;
+let moveTimeout = null;
+let markersMap = new Map(); // id -> leaflet marker
 
-// Custom Icons
+// Custom Marker Icons
 const mosqueIcon = L.divIcon({
     html: '<div style="background-color: #059669; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white;"><i class="fa-solid fa-mosque" style="font-size: 13px;"></i></div>',
     className: 'custom-mosque-marker',
@@ -49,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================
-// Authentication Handling
+// 1. Authentication Handling
 // ==========================================
 async function checkAuthAndInit() {
     authToken = localStorage.getItem('mosque_token');
@@ -90,7 +95,6 @@ function showAppScreen(username) {
         fetchStats();
         setupEventListeners();
         setupAdminModalListeners();
-        loadInitialMosques();
     } else {
         setTimeout(() => map.invalidateSize(), 200);
     }
@@ -155,14 +159,13 @@ function setupAuthListeners() {
 }
 
 // ==========================================
-// Map Application Logic
+// 2. Map Initialization & Zoom-Gating Engine
 // ==========================================
-
-// 1. Initialize Map
 function initMap() {
+    // Initial Zoom set to country overview (zoom 8)
     map = L.map('map', {
         center: [currentCenter.lat, currentCenter.lng],
-        zoom: 9,
+        zoom: 8,
         zoomControl: true
     });
 
@@ -172,36 +175,101 @@ function initMap() {
         maxZoom: 19
     }).addTo(map);
 
-    // Marker Cluster
+    // Marker Cluster Group
     markerCluster = L.markerClusterGroup({
         chunkedLoading: true,
-        maxClusterRadius: 50,
+        maxClusterRadius: 45,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false
     });
     map.addLayer(markerCluster);
 
-    // Click on map searches nearby
+    // Initial check of zoom gate
+    updateZoomGate();
+
+    // Map Click: Search nearby at that point
     map.on('click', (e) => {
         searchNearbyAt(e.latlng.lat, e.latlng.lng);
     });
 
-    // Viewport drag/zoom auto-loads mosques
-    let moveTimeout;
-    map.on('moveend', () => {
+    // Zoom/Move End listener: Triggers Viewport Mosques only when Zoom >= 13
+    map.on('moveend zoomend', () => {
         clearTimeout(moveTimeout);
         moveTimeout = setTimeout(() => {
-            if (!document.getElementById('searchInput').value.trim() && !userPinMarker) {
-                loadViewportMosques();
-            }
-        }, 400);
+            handleMapMoveOrZoom();
+        }, 300);
     });
 
     setTimeout(() => map.invalidateSize(), 300);
 }
 
-// 2. Load Initial Mosques on Map Load
-async function loadInitialMosques() {
+// Update Zoom Gate (Show/Hide Zoom Hint & Manage Empty State)
+function updateZoomGate() {
+    const zoom = map.getZoom();
+    const zoomHint = document.getElementById('zoomHint');
+    const searchVal = document.getElementById('searchInput').value.trim();
+
+    if (zoom < ZOOM_THRESHOLD) {
+        // Zoom is too low (< 13): Gate active
+        if (!searchVal && !userPinMarker) {
+            zoomHint.classList.add('show');
+            markerCluster.clearLayers();
+            markersMap.clear();
+            showZoomPromptInSidebar();
+        } else {
+            zoomHint.classList.remove('show');
+        }
+    } else {
+        // Zoom is high enough (>= 13)
+        zoomHint.classList.remove('show');
+    }
+}
+
+// Handle Map Move / Zoom Change
+function handleMapMoveOrZoom() {
+    const searchVal = document.getElementById('searchInput').value.trim();
+    const zoom = map.getZoom();
+
+    updateZoomGate();
+
+    // If currently searching or focused on a custom user pin, don't override with viewport query
+    if (searchVal) return;
+    if (userPinMarker) return;
+
+    if (zoom >= ZOOM_THRESHOLD) {
+        loadViewportMosques();
+    }
+}
+
+// Show Zoom In Prompt in Sidebar
+function showZoomPromptInSidebar() {
+    const resultsList = document.getElementById('resultsList');
+    const searchStatus = document.getElementById('searchStatus');
+    const resultsCount = document.getElementById('resultsCount');
+
+    resultsCount.innerText = 'মসজিদ তালিকা';
+    searchStatus.innerText = 'জুম করুন';
+
+    resultsList.innerHTML = `
+        <div class="empty-state">
+            <i class="fa-solid fa-magnifying-glass-plus empty-icon"></i>
+            <p><b>মসজিদ দেখতে ম্যাপে জুম ইন করুন</b></p>
+            <p style="font-size: 0.8rem; margin-top: 6px; line-height: 1.4;">
+                Zoom স্তর ১৩ বা তার বেশি হলে এই এলাকার মসজিদগুলো সরাসরি প্রদর্শিত হবে। অথবা উপরে মসজিদের নাম লিখে অনুসন্ধান করুন।
+            </p>
+        </div>
+    `;
+}
+
+// ==========================================
+// 3. Viewport Mosques Query (Zoom >= 13)
+// ==========================================
+async function loadViewportMosques() {
+    if (map.getZoom() < ZOOM_THRESHOLD) {
+        updateZoomGate();
+        return;
+    }
+
     try {
         const bounds = map.getBounds();
         const minLat = bounds.getSouth();
@@ -212,78 +280,146 @@ async function loadInitialMosques() {
         const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
         const femaleParam = femaleOnly ? '&female_only=1' : '';
 
-        const res = await fetch(`${API_BASE}/mosques/bounds?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=500${femaleParam}`);
+        const searchStatus = document.getElementById('searchStatus');
+        searchStatus.innerText = 'লোড হচ্ছে...';
+
+        const res = await fetch(`${API_BASE}/mosques/bounds?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=150${femaleParam}`);
         const json = await res.json();
 
-        if (json.success && json.data.length > 0) {
+        if (json.success && json.data) {
             renderMapMarkers(json.data);
-            renderMosqueResults(json.data.slice(0, 50));
-            document.getElementById('searchStatus').innerText = `${json.data.length} টি লোড হয়েছে`;
+            renderMosqueResults(json.data);
+            searchStatus.innerText = `${json.data.length} টি দৃশ্যমান`;
+            document.getElementById('resultsCount').innerText = `দৃশ্যমান মসজিদ (${json.data.length})`;
         } else {
-            // Fallback: search for any mosques
-            const fallbackRes = await fetch(`${API_BASE}/mosques/search?q=a&limit=100`);
-            const fallbackJson = await fallbackRes.json();
-            if (fallbackJson.success && fallbackJson.data.length > 0) {
-                renderMapMarkers(fallbackJson.data);
-                renderMosqueResults(fallbackJson.data.slice(0, 50));
-                document.getElementById('searchStatus').innerText = `${fallbackJson.data.length} টি মসজিদ দৃশ্যমান`;
-            }
+            searchStatus.innerText = '০ টি';
         }
     } catch (e) {
-        console.error('Error loading initial mosques:', e);
+        console.error('Error fetching viewport mosques:', e);
     }
 }
 
-// 3. Load Viewport Mosques (when panning/zooming map)
-async function loadViewportMosques() {
+// ==========================================
+// 4. Name Search Handling (Debounced)
+// ==========================================
+function setupSearchHandler() {
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearchBtn');
+
+    searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        const query = e.target.value.trim();
+
+        if (query) {
+            clearSearchBtn.style.display = 'block';
+        } else {
+            clearSearchBtn.style.display = 'none';
+            resetSearchView();
+            return;
+        }
+
+        searchTimeout = setTimeout(async () => {
+            await executeSearch(query);
+        }, 250);
+    });
+
+    clearSearchBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        clearSearchBtn.style.display = 'none';
+        resetSearchView();
+        searchInput.focus();
+    });
+}
+
+function resetSearchView() {
+    if (userPinMarker) {
+        map.removeLayer(userPinMarker);
+        userPinMarker = null;
+    }
+    if (currentCircle) {
+        map.removeLayer(currentCircle);
+        currentCircle = null;
+    }
+
+    if (map.getZoom() >= ZOOM_THRESHOLD) {
+        loadViewportMosques();
+    } else {
+        updateZoomGate();
+    }
+}
+
+async function executeSearch(query) {
+    const resultsList = document.getElementById('resultsList');
+    const searchStatus = document.getElementById('searchStatus');
+    const resultsCount = document.getElementById('resultsCount');
+    const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
+
+    searchStatus.innerText = 'অনুসন্ধান হচ্ছে...';
+    resultsCount.innerText = 'অনুসন্ধান ফলাফল';
+    resultsList.innerHTML = '<div style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>';
+
+    // Hide zoom hint during search
+    document.getElementById('zoomHint').classList.remove('show');
+
     try {
-        const bounds = map.getBounds();
-        const minLat = bounds.getSouth();
-        const maxLat = bounds.getNorth();
-        const minLng = bounds.getWest();
-        const maxLng = bounds.getEast();
-
-        const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
         const femaleParam = femaleOnly ? '&female_only=1' : '';
-
-        const res = await fetch(`${API_BASE}/mosques/bounds?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=400${femaleParam}`);
+        const res = await fetch(`${API_BASE}/mosques/search?q=${encodeURIComponent(query)}&limit=50${femaleParam}`);
         const json = await res.json();
 
-        if (json.success && json.data.length > 0) {
-            renderMapMarkers(json.data);
-            renderMosqueResults(json.data.slice(0, 50));
-            document.getElementById('searchStatus').innerText = `${json.data.length} টি দৃশ্যমান`;
-        }
-    } catch (e) {}
-}
-
-// 4. Fetch Total Mosque & Female Facility Stats
-async function fetchStats() {
-    try {
-        const res = await fetch(`${API_BASE}/mosques/stats`);
-        const data = await res.json();
-        if (data.success) {
-            const total = Number(data.total_mosques).toLocaleString('en-US');
-            const female = Number(data.female_facility_mosques || 0).toLocaleString('en-US');
-            document.getElementById('totalMosquesCount').innerHTML = `
-                <b>${total}</b> টি মসজিদ (${female} টিতে মহিলাদের ব্যবস্থা)
+        if (!json.success || !json.data || json.data.length === 0) {
+            searchStatus.innerText = '০ টি পাওয়া গেছে';
+            markerCluster.clearLayers();
+            markersMap.clear();
+            resultsList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fa-solid fa-circle-exclamation empty-icon"></i>
+                    <p><b>"${query}" নামে কোনো মসজিদ খুঁজে পাওয়া যায়নি</b></p>
+                    <p style="font-size: 0.8rem; margin-top: 6px;">সঠিক বানান নিশ্চিত করুন অথবা অন্য কোনো কিওয়ার্ড দিয়ে খুঁজুন।</p>
+                </div>
             `;
+            return;
         }
+
+        searchStatus.innerText = `${json.data.length} টি পাওয়া গেছে`;
+        renderMosqueResults(json.data);
+        renderMapMarkers(json.data);
+
+        // Fly directly to the first matched mosque and open popup
+        const first = json.data[0];
+        const firstLat = parseFloat(first.latitude);
+        const firstLng = parseFloat(first.longitude);
+
+        if (!isNaN(firstLat) && !isNaN(firstLng)) {
+            map.flyTo([firstLat, firstLng], 16, { duration: 1 });
+            setTimeout(() => {
+                const marker = markersMap.get(first.id);
+                if (marker) marker.openPopup();
+            }, 800);
+        }
+
     } catch (err) {
-        document.getElementById('totalMosquesCount').innerText = 'অফলাইন';
+        searchStatus.innerText = 'ত্রুটি';
+        resultsList.innerHTML = '<div style="color:red; text-align:center; padding:20px;">অনুসন্ধানে সমস্যা হয়েছে।</div>';
     }
 }
 
-// 5. Search Nearby Mosques
+// ==========================================
+// 5. Search Nearby At Coordinate
+// ==========================================
 async function searchNearbyAt(lat, lng) {
     currentCenter = { lat: parseFloat(lat), lng: parseFloat(lng) };
     const radius = parseInt(document.getElementById('radiusSelect').value, 10);
     const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
     const resultsList = document.getElementById('resultsList');
     const searchStatus = document.getElementById('searchStatus');
+    const resultsCount = document.getElementById('resultsCount');
 
     searchStatus.innerText = 'অনুসন্ধান হচ্ছে...';
+    resultsCount.innerText = 'আশেপাশের মসজিদ';
     resultsList.innerHTML = '<div style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>';
+
+    // Hide zoom hint
+    document.getElementById('zoomHint').classList.remove('show');
 
     // Update Center Pin
     if (userPinMarker) map.removeLayer(userPinMarker);
@@ -307,14 +443,15 @@ async function searchNearbyAt(lat, lng) {
 
         if (!json.success || !json.data || json.data.length === 0) {
             searchStatus.innerText = '০ টি পাওয়া গেছে';
+            markerCluster.clearLayers();
+            markersMap.clear();
             resultsList.innerHTML = `
-                <div style="text-align: center; color: var(--text-muted); padding: 30px;">
-                    <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; margin-bottom: 8px;"></i>
+                <div class="empty-state">
+                    <i class="fa-solid fa-location-dot empty-icon"></i>
                     <p>এই ${radius >= 1000 ? (radius / 1000) + ' কিমি' : radius + ' মিটার'} পরিধির মধ্যে ${femaleOnly ? 'মহিলাদের ব্যবস্থাযুক্ত ' : ''}কোনো মসজিদ পাওয়া যায়নি।</p>
-                    <p style="font-size: 0.8rem; margin-top: 4px;">পরিধি বাড়িয়ে দেখুন অথবা ফিল্টার পরিবর্তন করুন।</p>
+                    <p style="font-size: 0.8rem; margin-top: 6px;">পরিধি বাড়িয়ে দেখুন অথবা ফিল্টার বন্ধ করুন।</p>
                 </div>
             `;
-            markerCluster.clearLayers();
             return;
         }
 
@@ -322,16 +459,17 @@ async function searchNearbyAt(lat, lng) {
         renderMosqueResults(json.data);
         renderMapMarkers(json.data);
 
-        map.fitBounds(currentCircle.getBounds());
+        map.fitBounds(currentCircle.getBounds(), { maxZoom: 16 });
 
     } catch (err) {
-        console.error(err);
         searchStatus.innerText = 'ত্রুটি';
         resultsList.innerHTML = `<div style="color:red; text-align:center; padding:20px;">ডাটা লোড করতে সমস্যা হয়েছে।</div>`;
     }
 }
 
-// 6. Render Results in Sidebar
+// ==========================================
+// 6. Render Sidebar Mosque Results
+// ==========================================
 function renderMosqueResults(mosques) {
     const list = document.getElementById('resultsList');
     list.innerHTML = '';
@@ -381,15 +519,23 @@ function renderMosqueResults(mosques) {
             document.querySelectorAll('.mosque-card').forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             map.flyTo([lat, lng], 17);
+
+            const marker = markersMap.get(m.id);
+            if (marker) {
+                setTimeout(() => marker.openPopup(), 400);
+            }
         });
 
         list.appendChild(card);
     });
 }
 
-// 7. Render Mosque Markers on Leaflet
+// ==========================================
+// 7. Render Markers on Leaflet Map
+// ==========================================
 function renderMapMarkers(mosques) {
     markerCluster.clearLayers();
+    markersMap.clear();
 
     if (!mosques) return;
 
@@ -431,11 +577,23 @@ function renderMapMarkers(mosques) {
             </div>
         `);
 
+        marker.on('click', () => {
+            const card = document.getElementById(`card-${m.id}`);
+            if (card) {
+                document.querySelectorAll('.mosque-card').forEach(c => c.classList.remove('active'));
+                card.classList.add('active');
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+
         markerCluster.addLayer(marker);
+        markersMap.set(m.id, marker);
     });
 }
 
+// ==========================================
 // 8. Toggle Female Facility via API
+// ==========================================
 async function toggleFemaleFacility(id, currentStatus) {
     const newStatus = currentStatus === 1 ? false : true;
     const confirmMsg = newStatus 
@@ -458,9 +616,14 @@ async function toggleFemaleFacility(id, currentStatus) {
         if (json.success) {
             alert('✅ মসজিদের তথ্য সফলভাবে আপডেট হয়েছে!');
             fetchStats();
-            if (userPinMarker) {
+
+            // Refresh current state
+            const searchVal = document.getElementById('searchInput').value.trim();
+            if (searchVal) {
+                executeSearch(searchVal);
+            } else if (userPinMarker) {
                 searchNearbyAt(currentCenter.lat, currentCenter.lng);
-            } else {
+            } else if (map.getZoom() >= ZOOM_THRESHOLD) {
                 loadViewportMosques();
             }
         } else {
@@ -471,64 +634,28 @@ async function toggleFemaleFacility(id, currentStatus) {
     }
 }
 
-// 9. Name Search Handler (Debounced)
-let searchTimeout;
-function setupSearchHandler() {
-    const searchInput = document.getElementById('searchInput');
-
-    searchInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        const query = e.target.value.trim();
-        const femaleOnly = document.getElementById('femaleOnlyToggle').checked;
-
-        if (!query) {
-            loadViewportMosques();
-            return;
+// ==========================================
+// 9. Fetch Overall Mosque Stats
+// ==========================================
+async function fetchStats() {
+    try {
+        const res = await fetch(`${API_BASE}/mosques/stats`);
+        const data = await res.json();
+        if (data.success) {
+            const total = Number(data.total_mosques).toLocaleString('en-US');
+            const female = Number(data.female_facility_mosques || 0).toLocaleString('en-US');
+            document.getElementById('totalMosquesCount').innerHTML = `
+                <b>${total}</b> টি মসজিদ (${female} টিতে মহিলাদের ব্যবস্থা)
+            `;
         }
-
-        searchTimeout = setTimeout(async () => {
-            const resultsList = document.getElementById('resultsList');
-            const searchStatus = document.getElementById('searchStatus');
-            searchStatus.innerText = 'অনুসন্ধান হচ্ছে...';
-            resultsList.innerHTML = '<div style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>';
-
-            try {
-                const femaleParam = femaleOnly ? '&female_only=1' : '';
-                const res = await fetch(`${API_BASE}/mosques/search?q=${encodeURIComponent(query)}&limit=50${femaleParam}`);
-                const json = await res.json();
-
-                if (!json.success || !json.data || json.data.length === 0) {
-                    searchStatus.innerText = '০ টি পাওয়া গেছে';
-                    resultsList.innerHTML = `
-                        <div style="text-align: center; color: var(--text-muted); padding: 30px;">
-                            <p>"${query}" নামে কোনো মসজিদ খুঁজে পাওয়া যায়নি।</p>
-                        </div>
-                    `;
-                    markerCluster.clearLayers();
-                    return;
-                }
-
-                searchStatus.innerText = `${json.data.length} টি পাওয়া গেছে`;
-                renderMosqueResults(json.data);
-                renderMapMarkers(json.data);
-
-                if (json.data.length > 0) {
-                    const firstLat = parseFloat(json.data[0].latitude);
-                    const firstLng = parseFloat(json.data[0].longitude);
-                    if (!isNaN(firstLat) && !isNaN(firstLng)) {
-                        map.flyTo([firstLat, firstLng], 14);
-                    }
-                }
-
-            } catch (err) {
-                searchStatus.innerText = 'ত্রুটি';
-                resultsList.innerHTML = '<div style="color:red; text-align:center; padding:20px;">অনুসন্ধানে ত্রুটি হয়েছে।</div>';
-            }
-        }, 300);
-    });
+    } catch (err) {
+        document.getElementById('totalMosquesCount').innerText = 'অফলাইন';
+    }
 }
 
-// 10. Admin Modal & Account Management
+// ==========================================
+// 10. Admin Settings & Account Management
+// ==========================================
 function setupAdminModalListeners() {
     const adminModal = document.getElementById('adminModal');
     const openAdminBtn = document.getElementById('openAdminBtn');
@@ -536,7 +663,8 @@ function setupAdminModalListeners() {
 
     openAdminBtn.addEventListener('click', () => {
         adminModal.classList.add('active');
-        loadUserList();
+        document.getElementById('passMsg').style.display = 'none';
+        document.getElementById('createUserMsg').style.display = 'none';
     });
 
     closeAdminBtn.addEventListener('click', () => {
@@ -702,7 +830,9 @@ async function deleteUserAccount(id, name) {
     }
 }
 
-// 11. Setup Remaining Listeners
+// ==========================================
+// 11. General Event Listeners & CSV Upload
+// ==========================================
 function setupEventListeners() {
     setupSearchHandler();
 
@@ -710,10 +840,10 @@ function setupEventListeners() {
     document.getElementById('femaleOnlyToggle').addEventListener('change', () => {
         const query = document.getElementById('searchInput').value.trim();
         if (query) {
-            document.getElementById('searchInput').dispatchEvent(new Event('input'));
+            executeSearch(query);
         } else if (userPinMarker) {
             searchNearbyAt(currentCenter.lat, currentCenter.lng);
-        } else {
+        } else if (map.getZoom() >= ZOOM_THRESHOLD) {
             loadViewportMosques();
         }
     });
@@ -742,14 +872,14 @@ function setupEventListeners() {
         );
     });
 
-    // Radius change
+    // Radius select change
     document.getElementById('radiusSelect').addEventListener('change', () => {
         if (userPinMarker) {
             searchNearbyAt(currentCenter.lat, currentCenter.lng);
         }
     });
 
-    // Modal Handlers (CSV Import)
+    // CSV Import Modal Handlers
     const modal = document.getElementById('importModal');
     const openBtn = document.getElementById('openImportBtn');
     const closeBtn = document.getElementById('closeImportBtn');
@@ -853,7 +983,9 @@ function setupEventListeners() {
                     • মহিলাদের ব্যবস্থাযুক্ত মসজিদ: <b>${Number(json.female_facility_mosques || 0).toLocaleString('en-US')} টি</b>
                 `;
                 fetchStats();
-                loadViewportMosques();
+                if (map.getZoom() >= ZOOM_THRESHOLD) {
+                    loadViewportMosques();
+                }
             } else {
                 document.getElementById('progressText').innerText = '❌ ইমপোর্ট ব্যর্থ হয়েছে!';
                 importResult.style.display = 'block';

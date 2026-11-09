@@ -61,7 +61,7 @@
             <div class="header-actions">
                 <div class="stats-badge" id="statsBadge">
                     <i class="fa-solid fa-database"></i>
-                    <span id="totalMosquesCount">লোড হচ্ছে...</span>
+                    <span id="totalMosquesCount">ডাটাবেস কানেক্ট হচ্ছে...</span>
                 </div>
                 
                 <button class="btn btn-outline" id="locateBtn">
@@ -96,6 +96,7 @@
                     <div class="search-box">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
                         <input type="text" id="searchInput" placeholder="মসজিদের নাম দিয়ে খুঁজুন (যেমন: বায়তুল...)" />
+                        <button id="clearSearchBtn" class="clear-search-btn" style="display: none;" title="মুছুন">&times;</button>
                     </div>
 
                     <div class="radius-control">
@@ -126,15 +127,23 @@
                 </div>
 
                 <div class="results-list" id="resultsList">
-                    <div style="text-align: center; color: var(--text-muted); padding: 40px 10px;">
-                        <i class="fa-solid fa-spinner fa-spin fa-2x" style="margin-bottom: 12px; opacity: 0.5;"></i>
-                        <p>ডাটা লোড হচ্ছে...</p>
+                    <div class="empty-state">
+                        <i class="fa-solid fa-map-location-dot empty-icon"></i>
+                        <p><b>মসজিদ দেখতে ম্যাপে জুম ইন করুন</b></p>
+                        <p style="font-size: 0.8rem; margin-top: 4px;">অথবা উপরে মসজিদের নাম লিখে সরাসরি অনুসন্ধান করুন।</p>
                     </div>
                 </div>
             </aside>
 
             <!-- Map Container -->
-            <div id="map"></div>
+            <div id="mapWrapper" style="flex:1; position:relative; height:100%;">
+                <div id="map"></div>
+                
+                <!-- Floating Zoom Hint (Appears when Zoom < 13) -->
+                <div id="zoomHint" class="zoom-hint-pill">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i> মসজিদ দেখতে নির্দিষ্ট এলাকায় জুম ইন করুন অথবা নাম লিখে খুঁজুন
+                </div>
+            </div>
         </div>
 
         <!-- 3. Admin Account Management Modal -->

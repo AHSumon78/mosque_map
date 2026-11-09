@@ -2,25 +2,25 @@ const pool = require('../config/db');
 
 /**
  * Controller for Mosque queries, updates, and spatial calculations
+ * Optimized for high-volume 100,000+ records
  */
 const mosqueController = {
     /**
      * Get nearby mosques using MySQL Spatial ST_Distance_Sphere
-     * Supports filtering by female prayer facilities
      * GET /api/v1/mosques/nearby?lat=23.7258&lng=90.4127&radius=2000&limit=100&female_only=1
      */
     async getNearbyMosques(req, res) {
         try {
             const lat = parseFloat(req.query.lat);
             const lng = parseFloat(req.query.lng);
-            const radius = Math.min(parseInt(req.query.radius || '2000', 10), 50000); // max 50km
-            const limit = Math.min(parseInt(req.query.limit || '100', 10), 500);
+            const radius = Math.min(parseInt(req.query.radius || '2000', 10), 30000); // max 30km
+            const limit = Math.min(parseInt(req.query.limit || '100', 10), 200);
             const femaleOnly = req.query.female_only === 'true' || req.query.female_only === '1';
 
             if (isNaN(lat) || isNaN(lng)) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Valid lat (latitude) and lng (longitude) parameters are required.'
+                    error: 'সঠিক অক্ষাংশ (lat) এবং দ্রাঘিমাংশ (lng) প্রদান করুন।'
                 });
             }
 
@@ -74,25 +74,25 @@ const mosqueController = {
             console.error('Error fetching nearby mosques:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Internal server error while searching nearby mosques.'
+                error: 'নিকটবর্তী মসজিদ অনুসন্ধানে সমস্যা হয়েছে।'
             });
         }
     },
 
     /**
-     * Search mosques by name
-     * GET /api/v1/mosques/search?q=Baitul&limit=30&female_only=1
+     * Search mosques by name (Fast Substring Match)
+     * GET /api/v1/mosques/search?q=Baitul&limit=50&female_only=1
      */
     async searchMosques(req, res) {
         try {
             const keyword = req.query.q || '';
-            const limit = Math.min(parseInt(req.query.limit || '40', 10), 100);
+            const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
             const femaleOnly = req.query.female_only === 'true' || req.query.female_only === '1';
 
             if (!keyword.trim()) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Query parameter q is required.'
+                    error: 'অনুসন্ধানের জন্য কিওয়ার্ড প্রদান করুন।'
                 });
             }
 
@@ -107,7 +107,7 @@ const mosqueController = {
                 query += ' AND has_female_facility = 1';
             }
 
-            query += ' LIMIT ?;';
+            query += ' ORDER BY id ASC LIMIT ?;';
             params.push(limit);
 
             const [rows] = await pool.query(query, params);
@@ -129,14 +129,15 @@ const mosqueController = {
             console.error('Error searching mosques:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Internal server error while searching mosques.'
+                error: 'মসজিদ অনুসন্ধানে ত্রুটি হয়েছে।'
             });
         }
     },
 
     /**
-     * Get mosques inside map bounding box
-     * GET /api/v1/mosques/bounds?minLat=23.7&maxLat=23.8&minLng=90.3&maxLng=90.5&limit=200&female_only=1
+     * Get mosques inside map bounding box (Strictly Zoom-Gated Viewport)
+     * Capped at max 150 rows for blazing performance
+     * GET /api/v1/mosques/bounds?minLat=24.3&maxLat=24.4&minLng=88.5&maxLng=88.7&limit=150
      */
     async getMosquesInBounds(req, res) {
         try {
@@ -144,15 +145,21 @@ const mosqueController = {
             const maxLat = parseFloat(req.query.maxLat);
             const minLng = parseFloat(req.query.minLng);
             const maxLng = parseFloat(req.query.maxLng);
-            const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
+            const limit = Math.min(parseInt(req.query.limit || '150', 10), 200);
             const femaleOnly = req.query.female_only === 'true' || req.query.female_only === '1';
 
             if (isNaN(minLat) || isNaN(maxLat) || isNaN(minLng) || isNaN(maxLng)) {
                 return res.status(400).json({
                     success: false,
-                    error: 'minLat, maxLat, minLng, maxLng parameters are required.'
+                    error: 'সঠিক বাউন্ডিং বক্স কোঅর্ডিনেটস প্রয়োজন।'
                 });
             }
+
+            // Ensure min <= max
+            const realMinLat = Math.min(minLat, maxLat);
+            const realMaxLat = Math.max(minLat, maxLat);
+            const realMinLng = Math.min(minLng, maxLng);
+            const realMaxLng = Math.max(minLng, maxLng);
 
             let query = `
                 SELECT id, name, latitude, longitude, has_female_facility
@@ -160,7 +167,7 @@ const mosqueController = {
                 WHERE latitude BETWEEN ? AND ?
                   AND longitude BETWEEN ? AND ?
             `;
-            const params = [minLat, maxLat, minLng, maxLng];
+            const params = [realMinLat, realMaxLat, realMinLng, realMaxLng];
 
             if (femaleOnly) {
                 query += ' AND has_female_facility = 1';
@@ -188,14 +195,14 @@ const mosqueController = {
             console.error('Error fetching mosques in bounds:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Internal server error while fetching viewport mosques.'
+                error: 'ভিউর্পোটের মসজিদ লোড করতে সমস্যা হয়েছে।'
             });
         }
     },
 
     /**
-     * Update Mosque Information
-     * PUT/PATCH /api/v1/mosques/:id
+     * Update Mosque Information (Female facility, name)
+     * PATCH/PUT /api/v1/mosques/:id
      */
     async updateMosque(req, res) {
         try {
@@ -203,7 +210,7 @@ const mosqueController = {
             if (isNaN(id)) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid mosque ID.'
+                    error: 'অকার্যকর মসজিদ আইডি।'
                 });
             }
 
@@ -212,7 +219,7 @@ const mosqueController = {
             if (has_female_facility === undefined && name === undefined) {
                 return res.status(400).json({
                     success: false,
-                    error: 'At least one field (has_female_facility or name) must be provided.'
+                    error: 'কমপক্ষে একটি তথ্য প্রদান করুন।'
                 });
             }
 
@@ -238,7 +245,7 @@ const mosqueController = {
             if (result.affectedRows === 0) {
                 return res.status(404).json({
                     success: false,
-                    error: `Mosque with ID ${id} not found.`
+                    error: `আইডি ${id} যুক্ত মসজিদটি খুঁজে পাওয়া যায়নি।`
                 });
             }
 
@@ -246,7 +253,7 @@ const mosqueController = {
 
             return res.json({
                 success: true,
-                message: 'Mosque updated successfully.',
+                message: 'মসজিদের তথ্য সফলভাবে আপডেট হয়েছে।',
                 data: {
                     ...rows[0],
                     latitude: parseFloat(rows[0].latitude),
@@ -258,13 +265,14 @@ const mosqueController = {
             console.error('Error updating mosque:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Internal server error while updating mosque.'
+                error: 'মসজিদ আপডেট করতে সমস্যা হয়েছে।'
             });
         }
     },
 
     /**
      * Mosque statistics
+     * Fast COUNT(*) queries
      * GET /api/v1/mosques/stats
      */
     async getStats(req, res) {
@@ -281,7 +289,7 @@ const mosqueController = {
             console.error('Error fetching stats:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Internal server error.'
+                error: 'পরিসংখ্যান লোড করতে ব্যর্থ হয়েছে।'
             });
         }
     }
