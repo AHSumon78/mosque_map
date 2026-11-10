@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { checkLocalDuplicate, verifyWithGoogleMapsFree } = require('../services/mosqueVerifyService');
 
 /**
  * Controller for Mosque queries, updates, and spatial calculations
@@ -236,7 +237,7 @@ const mosqueController = {
                     has_female_facility = VALUES(has_female_facility)
             `;
 
-            const [result] = await pool.query(query, [cleanName, lat, lng, lat, lng, femaleVal]);
+            const [result] = await pool.query(query, [cleanName, lat, lng, lng, lat, femaleVal]);
 
             return res.status(201).json({
                 success: true,
@@ -256,6 +257,250 @@ const mosqueController = {
                 success: false,
                 error: 'নতুন মসজিদ যুক্ত করতে ব্যর্থ হয়েছে: ' + error.message
             });
+        }
+    },
+
+    /**
+     * Public Mosque Submission with Duplicate Guard & Free 10-20m Google Maps Auto-Approval
+     * POST /api/v1/mosques/submit
+     */
+    async submitPublicMosque(req, res) {
+        try {
+            const { name, latitude, longitude, has_female_facility, submitted_by } = req.body;
+
+            if (!name || latitude === undefined || longitude === undefined) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'মসজিদের নাম (name), অক্ষাংশ (latitude) এবং দ্রাঘিমাংশ (longitude) প্রদান করুন।'
+                });
+            }
+
+            const cleanName = String(name).trim().slice(0, 250);
+            const lat = parseFloat(latitude);
+            const lng = parseFloat(longitude);
+            const femaleVal = (has_female_facility === true || has_female_facility === 1 || has_female_facility === '1' || has_female_facility === 'true') ? 1 : 0;
+            const submitter = submitted_by ? String(submitted_by).trim().slice(0, 90) : 'public_user';
+
+            if (!cleanName || isNaN(lat) || isNaN(lng) || lat < 20 || lat > 27 || lng < 87 || lng > 93) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'সঠিক নাম এবং বাংলাদেশ ভৌগোলিক কোঅর্ডিনেটস প্রদান করুন (Latitude: 20-27, Longitude: 87-93)।'
+                });
+            }
+
+            // Step 1: Duplicate check within 15 meters in local DB & pending queue
+            const dupCheck = await checkLocalDuplicate(lat, lng, 15);
+            if (dupCheck.duplicate) {
+                if (dupCheck.source === 'mosques') {
+                    return res.status(409).json({
+                        success: false,
+                        duplicate: true,
+                        error: `এই স্থানে (${dupCheck.distance} মিটারের মধ্যে) ইতিমধ্যেই '${dupCheck.name}' মসজিদটি নিবন্ধিত আছে।`,
+                        existing_mosque: { id: dupCheck.id, name: dupCheck.name, distance_meters: dupCheck.distance }
+                    });
+                } else {
+                    return res.status(409).json({
+                        success: false,
+                        duplicate: true,
+                        pending: true,
+                        error: `এই স্থানের '${dupCheck.name}' মসজিদটি ইতিমধ্যেই এডমিন রিভিউয়ের জন্য পেন্ডিং রয়েছে।`
+                    });
+                }
+            }
+
+            // Step 2: Free Google Maps / Map 10-20m Auto-Verification
+            const verifyResult = await verifyWithGoogleMapsFree(lat, lng, 20);
+
+            if (verifyResult.verified) {
+                // Auto-Approve directly into main mosques table!
+                const insertSql = `
+                    INSERT INTO mosques (name, latitude, longitude, location, has_female_facility)
+                    VALUES (?, ?, ?, POINT(?, ?), ?)
+                    ON DUPLICATE KEY UPDATE name = VALUES(name), has_female_facility = VALUES(has_female_facility)
+                `;
+                const [insertRes] = await pool.query(insertSql, [cleanName, lat, lng, lng, lat, femaleVal]);
+
+                return res.status(201).json({
+                    success: true,
+                    auto_approved: true,
+                    status: 'approved',
+                    message: `🎉 ${verifyResult.note}`,
+                    verification: verifyResult,
+                    data: {
+                        id: insertRes.insertId,
+                        name: cleanName,
+                        latitude: lat,
+                        longitude: lng,
+                        has_female_facility: femaleVal
+                    }
+                });
+            } else {
+                // Save to pending_mosques for Admin Review
+                const pendingSql = `
+                    INSERT INTO pending_mosques (name, latitude, longitude, has_female_facility, submitted_by, verification_note, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                `;
+                const [pendingRes] = await pool.query(pendingSql, [
+                    cleanName,
+                    lat,
+                    lng,
+                    femaleVal,
+                    submitter,
+                    verifyResult.note || 'এডমিন রিভিউয়ের অপেক্ষায়'
+                ]);
+
+                return res.status(202).json({
+                    success: true,
+                    auto_approved: false,
+                    status: 'pending',
+                    message: '⏳ আপনার মসজিদের তথ্য সফলভাবে এডমিন রিভিউয়ের জন্য জমা হয়েছে। অনুমোদন পেলে ম্যাপে যুক্ত হবে।',
+                    verification_note: verifyResult.note,
+                    data: {
+                        pending_id: pendingRes.insertId,
+                        name: cleanName,
+                        latitude: lat,
+                        longitude: lng,
+                        has_female_facility: femaleVal
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error in submitPublicMosque:', error);
+            return res.status(500).json({
+                success: false,
+                error: 'মসজিদ সাবমিট করতে সমস্যা হয়েছে: ' + error.message
+            });
+        }
+    },
+
+    /**
+     * Admin: List Pending Mosque Submissions
+     * GET /api/v1/admin/pending-mosques
+     */
+    async getPendingMosques(req, res) {
+        try {
+            const [rows] = await pool.query(`
+                SELECT id, name, latitude, longitude, has_female_facility, submitted_by, verification_note, status, created_at
+                FROM pending_mosques
+                WHERE status = 'pending'
+                ORDER BY created_at DESC
+                LIMIT 100
+            `);
+
+            const cleanRows = rows.map(r => ({
+                ...r,
+                latitude: parseFloat(r.latitude),
+                longitude: parseFloat(r.longitude)
+            }));
+
+            return res.json({
+                success: true,
+                total: cleanRows.length,
+                data: cleanRows
+            });
+        } catch (error) {
+            console.error('Error fetching pending mosques:', error);
+            return res.status(500).json({
+                success: false,
+                error: 'পেন্ডিং মসজিদ তালিকা লোড করতে সমস্যা হয়েছে।'
+            });
+        }
+    },
+
+    /**
+     * Admin: Approve Pending Mosque -> Moves to main 'mosques' table
+     * POST /api/v1/admin/pending-mosques/:id/approve
+     */
+    async approvePendingMosque(req, res) {
+        try {
+            const pendingId = parseInt(req.params.id, 10);
+            if (isNaN(pendingId)) {
+                return res.status(400).json({ success: false, error: 'অকার্যকর পেন্ডিং আইডি।' });
+            }
+
+            const [rows] = await pool.query(`SELECT * FROM pending_mosques WHERE id = ? AND status = 'pending'`, [pendingId]);
+            if (rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'পেন্ডিং মসজিদটি পাওয়া যায়নি বা ইতিমধ্যে প্রসেস করা হয়েছে।' });
+            }
+
+            const item = rows[0];
+            const finalName = req.body.name ? String(req.body.name).trim() : item.name;
+            const finalFemale = req.body.has_female_facility !== undefined
+                ? ((req.body.has_female_facility === true || req.body.has_female_facility === 1 || req.body.has_female_facility === '1') ? 1 : 0)
+                : item.has_female_facility;
+
+            const lat = parseFloat(item.latitude);
+            const lng = parseFloat(item.longitude);
+
+            const insertSql = `
+                INSERT INTO mosques (name, latitude, longitude, location, has_female_facility)
+                VALUES (?, ?, ?, POINT(?, ?), ?)
+                ON DUPLICATE KEY UPDATE name = VALUES(name), has_female_facility = VALUES(has_female_facility)
+            `;
+            const [insertRes] = await pool.query(insertSql, [finalName, lat, lng, lng, lat, finalFemale]);
+
+            await pool.query(`UPDATE pending_mosques SET status = 'approved', reviewed_at = NOW() WHERE id = ?`, [pendingId]);
+
+            return res.json({
+                success: true,
+                message: `✅ '${finalName}' অনুমোদিত হয়ে মূল ম্যাপে যুক্ত হয়েছে!`,
+                mosque_id: insertRes.insertId
+            });
+        } catch (error) {
+            console.error('Error approving pending mosque:', error);
+            return res.status(500).json({ success: false, error: 'অনুমোদন করতে সমস্যা হয়েছে: ' + error.message });
+        }
+    },
+
+    /**
+     * Admin: Reject Pending Mosque
+     * POST /api/v1/admin/pending-mosques/:id/reject
+     */
+    async rejectPendingMosque(req, res) {
+        try {
+            const pendingId = parseInt(req.params.id, 10);
+            if (isNaN(pendingId)) {
+                return res.status(400).json({ success: false, error: 'অকার্যকর পেন্ডিং আইডি।' });
+            }
+
+            const [result] = await pool.query(`UPDATE pending_mosques SET status = 'rejected', reviewed_at = NOW() WHERE id = ? AND status = 'pending'`, [pendingId]);
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ success: false, error: 'পেন্ডিং মসজিদটি পাওয়া যায়নি।' });
+            }
+
+            return res.json({
+                success: true,
+                message: '❌ পেন্ডিং আবেদনটি বাতিল করা হয়েছে।'
+            });
+        } catch (error) {
+            console.error('Error rejecting pending mosque:', error);
+            return res.status(500).json({ success: false, error: 'বাতিল করতে সমস্যা হয়েছে।' });
+        }
+    },
+
+    /**
+     * Admin: Delete Mosque Permanently
+     * DELETE /api/v1/mosques/:id
+     */
+    async deleteMosque(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (isNaN(id)) {
+                return res.status(400).json({ success: false, error: 'অকার্যকর মসজিদ আইডি।' });
+            }
+
+            const [result] = await pool.query('DELETE FROM mosques WHERE id = ?', [id]);
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ success: false, error: `আইডি ${id} যুক্ত মসজিদটি পাওয়া যায়নি।` });
+            }
+
+            return res.json({
+                success: true,
+                message: '🗑️ মসজিদটি ডাটাবেস থেকে স্থায়ীভাবে ডিলিট করা হয়েছে।'
+            });
+        } catch (error) {
+            console.error('Error deleting mosque:', error);
+            return res.status(500).json({ success: false, error: 'মসজিদ ডিলিট করতে সমস্যা হয়েছে।' });
         }
     },
 
@@ -338,11 +583,17 @@ const mosqueController = {
         try {
             const [totalRows] = await pool.query('SELECT COUNT(*) AS total_mosques FROM mosques');
             const [femaleRows] = await pool.query('SELECT COUNT(*) AS total_female FROM mosques WHERE has_female_facility = 1');
+            let pendingCount = 0;
+            try {
+                const [pendingRows] = await pool.query("SELECT COUNT(*) AS total_pending FROM pending_mosques WHERE status = 'pending'");
+                pendingCount = pendingRows[0].total_pending;
+            } catch (e) {}
 
             return res.json({
                 success: true,
                 total_mosques: totalRows[0].total_mosques,
-                female_facility_mosques: femaleRows[0].total_female
+                female_facility_mosques: femaleRows[0].total_female,
+                pending_mosques: pendingCount
             });
         } catch (error) {
             console.error('Error fetching stats:', error);

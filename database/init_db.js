@@ -93,6 +93,23 @@ async function initDB() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
+        // Pending Public Mosque Submissions Table
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS pending_mosques (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                latitude DECIMAL(10, 7) NOT NULL,
+                longitude DECIMAL(10, 7) NOT NULL,
+                has_female_facility BOOLEAN DEFAULT FALSE,
+                submitted_by VARCHAR(100) DEFAULT 'public_user',
+                verification_note VARCHAR(255) DEFAULT NULL,
+                status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP NULL DEFAULT NULL,
+                INDEX idx_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
         // Check if has_female_facility column exists (backward compatibility)
         const [colCheck] = await conn.query(`
             SELECT COLUMN_NAME 

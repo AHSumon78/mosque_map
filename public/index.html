@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     
     <!-- App CSS -->
-    <link rel="stylesheet" href="css/style.css?v=2.2">
+    <link rel="stylesheet" href="css/style.css?v=2.3">
 </head>
 <body>
 
@@ -68,13 +68,18 @@
                     <i class="fa-solid fa-location-crosshairs"></i> আমার আশেপাশে
                 </button>
 
+                <button class="btn btn-outline" id="openAddMosqueBtn" title="নতুন মসজিদ যোগ করুন">
+                    <i class="fa-solid fa-plus"></i> মসজিদ যোগ করুন
+                </button>
+
                 <button class="btn btn-primary" id="openImportBtn">
                     <i class="fa-solid fa-file-import"></i> CSV ইমপোর্ট
                 </button>
 
                 <!-- Admin Settings Button -->
-                <button class="btn btn-outline" id="openAdminBtn" title="এডমিন সেটিংস ও একাউন্ট ম্যানেজমেন্ট">
-                    <i class="fa-solid fa-user-gear"></i> এডমিন সেটিংস
+                <button class="btn btn-outline" id="openAdminBtn" title="এডমিন সেটিংস, পেন্ডিং রিভিউ ও একাউন্ট ম্যানেজমেন্ট">
+                    <i class="fa-solid fa-user-gear"></i> এডমিন প্যানেল
+                    <span id="pendingBadge" class="pending-badge" style="display: none;">0</span>
                 </button>
 
                 <!-- User & Logout -->
@@ -146,24 +151,34 @@
             </div>
         </div>
 
-        <!-- 3. Admin Account Management Modal -->
+        <!-- 3. Admin Account Management & Review Modal -->
         <div class="modal-overlay" id="adminModal">
-            <div class="modal-content" style="max-width: 540px;">
+            <div class="modal-content" style="max-width: 640px;">
                 <div class="modal-header">
-                    <h3><i class="fa-solid fa-user-shield"></i> এডমিন ও একাউন্ট ম্যানেজমেন্ট</h3>
+                    <h3><i class="fa-solid fa-user-shield"></i> এডমিন প্যানেল ও রিভিউ</h3>
                     <button class="close-btn" id="closeAdminBtn">&times;</button>
                 </div>
 
                 <!-- Tabs -->
                 <div class="tab-header">
-                    <button class="tab-btn active" data-tab="tabChangePass">পাসওয়ার্ড পরিবর্তন</button>
-                    <button class="tab-btn" data-tab="tabNewUser">নতুন একাউন্ট তৈরি</button>
+                    <button class="tab-btn active" data-tab="tabPendingMosques">
+                        পেন্ডিং রিভিউ <span id="tabPendingCount" class="pending-badge" style="display:none;">0</span>
+                    </button>
+                    <button class="tab-btn" data-tab="tabChangePass">পাসওয়ার্ড</button>
+                    <button class="tab-btn" data-tab="tabNewUser">নতুন একাউন্ট</button>
                     <button class="tab-btn" data-tab="tabUserList">ইউজার তালিকা</button>
                 </div>
 
                 <div class="tab-body">
+                    <!-- Tab 0: Pending Mosques Review Queue -->
+                    <div class="tab-pane active" id="tabPendingMosques">
+                        <div id="pendingListContainer" style="max-height: 360px; overflow-y: auto;">
+                            <div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> লোড হচ্ছে...</div>
+                        </div>
+                    </div>
+
                     <!-- Tab 1: Change Password -->
-                    <div class="tab-pane active" id="tabChangePass">
+                    <div class="tab-pane" id="tabChangePass" style="display:none;">
                         <form id="changePassForm">
                             <div class="form-group">
                                 <label>বর্তমান পাসওয়ার্ড:</label>
@@ -215,6 +230,48 @@
             </div>
         </div>
 
+        <!-- 5. Add / Submit Mosque Modal -->
+        <div class="modal-overlay" id="addMosqueModal">
+            <div class="modal-content" style="max-width: 480px;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-mosque"></i> নতুন মসজিদ যুক্ত করুন</h3>
+                    <button class="close-btn" id="closeAddMosqueBtn">&times;</button>
+                </div>
+                <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">
+                    কোঅর্ডিনেটের ২০ মিটারের মধ্যে Google Maps-এ মসজিদ থাকলে স্বয়ংক্রিয়ভাবে যুক্ত হবে, অন্যথায় এডমিন রিভিউয়ের জন্য জমা হবে।
+                </p>
+                <form id="addMosqueForm">
+                    <div class="form-group">
+                        <label>মসজিদের নাম:</label>
+                        <input type="text" id="addMosqueName" required placeholder="যেমন: বায়তুল মামুর জামে মসজিদ" />
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                        <div class="form-group">
+                            <label>Latitude (অক্ষাংশ):</label>
+                            <input type="number" step="any" id="addMosqueLat" required placeholder="24.364521" />
+                        </div>
+                        <div class="form-group">
+                            <label>Longitude (দ্রাঘিমাংশ):</label>
+                            <input type="number" step="any" id="addMosqueLng" required placeholder="88.625140" />
+                        </div>
+                    </div>
+                    <button type="button" id="useMapCenterBtn" class="btn btn-outline btn-sm" style="margin-bottom:14px;">
+                        <i class="fa-solid fa-crosshairs"></i> ম্যাপের বর্তমান কেন্দ্রবিন্দু ব্যবহার করুন
+                    </button>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <input type="checkbox" id="addMosqueFemale" />
+                            <span><i class="fa-solid fa-person-dress" style="color:var(--female-color);"></i> মহিলাদের নামাজের ব্যবস্থা আছে</span>
+                        </label>
+                    </div>
+                    <div id="addMosqueMsg" style="display:none; font-size:0.85rem; padding:10px; border-radius:6px; margin-bottom:12px;"></div>
+                    <button type="submit" id="submitNewMosqueBtn" class="btn btn-primary" style="width:100%;">
+                        <i class="fa-solid fa-paper-plane"></i> মসজিদ সাবমিট করুন
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <!-- 4. CSV Import Modal -->
         <div class="modal-overlay" id="importModal">
             <div class="modal-content">
@@ -259,6 +316,6 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     
     <!-- App JS -->
-    <script src="js/app.js?v=2.2"></script>
+    <script src="js/app.js?v=2.3"></script>
 </body>
 </html>

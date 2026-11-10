@@ -106,6 +106,7 @@ function showAppScreen(username) {
         fetchStats();
         setupEventListeners();
         setupAdminModalListeners();
+        setupAddMosqueListeners();
     } else {
         setTimeout(() => map.invalidateSize(), 200);
     }
@@ -523,12 +524,15 @@ function renderMosqueResults(mosques) {
             <div style="margin-bottom: 8px;">
                 ${femaleTagHtml}
             </div>
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                 <a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" class="btn btn-outline btn-sm">
                     <i class="fa-solid fa-diamond-turn-right"></i> নেভিগেশন
                 </a>
                 <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); toggleFemaleFacility(${m.id}, ${hasFemale ? 1 : 0})">
                     <i class="fa-solid fa-pen-to-square"></i> ${hasFemale ? 'ব্যবস্থা সরান' : 'ব্যবস্থা যুক্ত করুন'}
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMosque(${m.id}, decodeURIComponent('${encodeURIComponent(m.name)}'))">
+                    <i class="fa-solid fa-trash"></i> ডিলিট
                 </button>
             </div>
         `;
@@ -584,12 +588,15 @@ function renderMapMarkers(mosques) {
                 <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 8px;">
                     📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}
                 </div>
-                <div style="display:flex; gap:6px;">
+                <div style="display:flex; gap:5px; flex-wrap:wrap;">
                     <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}" target="_blank" style="display:inline-block; background:#059669; color:white; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:500;">
                         গুগল ম্যাপ
                     </a>
                     <button onclick="toggleFemaleFacility(${m.id}, ${hasFemale ? 1 : 0})" style="background:#db2777; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;">
                         ${hasFemale ? 'ব্যবস্থা বাদ দিন' : 'মহিলাদের ব্যবস্থা আছে'}
+                    </button>
+                    <button onclick="deleteMosque(${m.id}, decodeURIComponent('${encodeURIComponent(m.name)}'))" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;">
+                        🗑️ ডিলিট
                     </button>
                 </div>
             </div>
@@ -652,6 +659,39 @@ async function toggleFemaleFacility(id, currentStatus) {
     }
 }
 
+// Delete Mosque Permanently via API
+async function deleteMosque(id, name) {
+    if (!confirm(`⚠️ আপনি কি নিশ্চিত '${name}' মসজিদটি স্থায়ীভাবে ডিলিট করতে চান? এটি ডাটাবেস থেকে সম্পূর্ণ মুছে যাবে।`)) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/mosques/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('mosque_token')}`
+            }
+        });
+        const json = await res.json();
+
+        if (json.success) {
+            alert('✅ ' + json.message);
+            fetchStats();
+
+            const searchVal = document.getElementById('searchInput').value.trim();
+            if (searchVal) {
+                executeSearch(searchVal);
+            } else if (userPinMarker) {
+                searchNearbyAt(currentCenter.lat, currentCenter.lng);
+            } else if (map.getZoom() >= ZOOM_THRESHOLD) {
+                loadViewportMosques();
+            }
+        } else {
+            alert('❌ ডিলিট ব্যর্থ: ' + (json.error || 'অননুমোদিত'));
+        }
+    } catch (err) {
+        alert('❌ সার্ভারের সাথে সংযোগ ব্যর্থ: ' + err.message);
+    }
+}
+
 // ==========================================
 // 9. Fetch Overall Mosque Stats
 // ==========================================
@@ -665,6 +705,17 @@ async function fetchStats() {
             document.getElementById('totalMosquesCount').innerHTML = `
                 <b>${total}</b> টি মসজিদ (${female} টিতে মহিলাদের ব্যবস্থা)
             `;
+
+            const pending = parseInt(data.pending_mosques || 0, 10);
+            const badge = document.getElementById('pendingBadge');
+            const tabBadge = document.getElementById('tabPendingCount');
+            if (pending > 0) {
+                if (badge) { badge.innerText = pending; badge.style.display = 'inline-block'; }
+                if (tabBadge) { tabBadge.innerText = pending; tabBadge.style.display = 'inline-block'; }
+            } else {
+                if (badge) badge.style.display = 'none';
+                if (tabBadge) tabBadge.style.display = 'none';
+            }
         }
     } catch (err) {
         document.getElementById('totalMosquesCount').innerText = 'অফলাইন';
@@ -672,7 +723,7 @@ async function fetchStats() {
 }
 
 // ==========================================
-// 10. Admin Settings & Account Management
+// 10. Admin Settings, Pending Review & Account Management
 // ==========================================
 function setupAdminModalListeners() {
     const adminModal = document.getElementById('adminModal');
@@ -683,6 +734,7 @@ function setupAdminModalListeners() {
         adminModal.classList.add('active');
         document.getElementById('passMsg').style.display = 'none';
         document.getElementById('createUserMsg').style.display = 'none';
+        loadPendingMosques();
     });
 
     closeAdminBtn.addEventListener('click', () => {
@@ -701,6 +753,8 @@ function setupAdminModalListeners() {
 
             if (target === 'tabUserList') {
                 loadUserList();
+            } else if (target === 'tabPendingMosques') {
+                loadPendingMosques();
             }
         });
     });
@@ -1021,3 +1075,193 @@ function setupEventListeners() {
         }
     });
 }
+
+// ==========================================
+// 12. Admin Pending Mosque Review Functions
+// ==========================================
+async function loadPendingMosques() {
+    const container = document.getElementById('pendingListContainer');
+    if (!container) return;
+    container.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> পেন্ডিং তালিকা লোড হচ্ছে...</div>';
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/pending-mosques`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('mosque_token')}` }
+        });
+        const data = await res.json();
+
+        if (!data.success || !data.data || data.data.length === 0) {
+            container.innerHTML = `
+                <div style="text-align:center; padding:30px; color:var(--text-muted);">
+                    <i class="fa-solid fa-circle-check" style="font-size:2rem; color:var(--primary); margin-bottom:8px;"></i>
+                    <p>কোনো পেন্ডিং মসজিদ রিভিউয়ের অপেক্ষায় নেই।</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = '';
+        data.data.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'pending-card';
+            const femaleTxt = item.has_female_facility ? '✅ মহিলাদের ব্যবস্থা আছে' : '❌ মহিলাদের ব্যবস্থা নেই';
+            card.innerHTML = `
+                <h4><i class="fa-solid fa-mosque" style="color:var(--primary);"></i> ${item.name}</h4>
+                <div style="font-size:0.78rem; color:var(--text-muted);">
+                    📍 ${item.latitude.toFixed(6)}, ${item.longitude.toFixed(6)} | ${femaleTxt} | প্রেরক: ${item.submitted_by || 'public'}
+                </div>
+                ${item.verification_note ? `<div class="pending-note"><i class="fa-solid fa-circle-info"></i> ${item.verification_note}</div>` : ''}
+                <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                    <button class="btn btn-outline btn-sm" onclick="previewPendingOnMap(${item.latitude}, ${item.longitude}, decodeURIComponent('${encodeURIComponent(item.name)}'))">
+                        <i class="fa-solid fa-map-pin"></i> ম্যাপে দেখুন
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="approvePending(${item.id})">
+                        <i class="fa-solid fa-check"></i> অনুমোদন (Approve)
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectPending(${item.id})">
+                        <i class="fa-solid fa-xmark"></i> বাতিল (Reject)
+                    </button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    } catch (e) {
+        container.innerHTML = '<div style="color:red; text-align:center; padding:15px;">পেন্ডিং তালিকা লোড ব্যর্থ হয়েছে।</div>';
+    }
+}
+
+function previewPendingOnMap(lat, lng, name) {
+    document.getElementById('adminModal').classList.remove('active');
+    map.flyTo([lat, lng], 17);
+    if (userPinMarker) map.removeLayer(userPinMarker);
+    userPinMarker = L.marker([lat, lng], { icon: userLocationIcon }).addTo(map);
+    userPinMarker.bindPopup(`<b>⏳ পেন্ডিং রিভিউ:</b><br>${name}<br>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`).openPopup();
+}
+
+async function approvePending(id) {
+    if (!confirm('আপনি কি নিশ্চিত এই মসজিদটি অনুমোদন করে মূল ম্যাপে যুক্ত করতে চান?')) return;
+    try {
+        const res = await fetch(`${API_BASE}/admin/pending-mosques/${id}/approve`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('mosque_token')}`
+            }
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message);
+            fetchStats();
+            loadPendingMosques();
+            if (map.getZoom() >= ZOOM_THRESHOLD) loadViewportMosques();
+        } else {
+            alert('❌ ' + (data.error || 'অনুমোদন ব্যর্থ!'));
+        }
+    } catch (e) {
+        alert('❌ সার্ভার সংযোগ ত্রুটি: ' + e.message);
+    }
+}
+
+async function rejectPending(id) {
+    if (!confirm('আপনি কি নিশ্চিত এই আবেদনটি বাতিল করতে চান?')) return;
+    try {
+        const res = await fetch(`${API_BASE}/admin/pending-mosques/${id}/reject`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('mosque_token')}`
+            }
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message);
+            fetchStats();
+            loadPendingMosques();
+        } else {
+            alert('❌ ' + (data.error || 'বাতিল ব্যর্থ!'));
+        }
+    } catch (e) {
+        alert('❌ সার্ভার সংযোগ ত্রুটি: ' + e.message);
+    }
+}
+
+// ==========================================
+// 13. Public / UI Mosque Submission Modal
+// ==========================================
+function setupAddMosqueListeners() {
+    const addModal = document.getElementById('addMosqueModal');
+    const openAddBtn = document.getElementById('openAddMosqueBtn');
+    const closeAddBtn = document.getElementById('closeAddMosqueBtn');
+    const useCenterBtn = document.getElementById('useMapCenterBtn');
+    const addForm = document.getElementById('addMosqueForm');
+    const addMsg = document.getElementById('addMosqueMsg');
+    const submitBtn = document.getElementById('submitNewMosqueBtn');
+
+    if (!addModal || !openAddBtn) return;
+
+    openAddBtn.addEventListener('click', () => {
+        addModal.classList.add('active');
+        addMsg.style.display = 'none';
+        const center = map.getCenter();
+        document.getElementById('addMosqueLat').value = center.lat.toFixed(6);
+        document.getElementById('addMosqueLng').value = center.lng.toFixed(6);
+    });
+
+    closeAddBtn.addEventListener('click', () => {
+        addModal.classList.remove('active');
+    });
+
+    useCenterBtn.addEventListener('click', () => {
+        const center = map.getCenter();
+        document.getElementById('addMosqueLat').value = center.lat.toFixed(6);
+        document.getElementById('addMosqueLng').value = center.lng.toFixed(6);
+    });
+
+    addForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        addMsg.style.display = 'none';
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Google Maps-এ যাচাই হচ্ছে...';
+
+        const payload = {
+            name: document.getElementById('addMosqueName').value.trim(),
+            latitude: parseFloat(document.getElementById('addMosqueLat').value),
+            longitude: parseFloat(document.getElementById('addMosqueLng').value),
+            has_female_facility: document.getElementById('addMosqueFemale').checked,
+            submitted_by: document.getElementById('loggedInUser').innerText || 'web_user'
+        };
+
+        try {
+            const res = await fetch(`${API_BASE}/mosques/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            addMsg.style.display = 'block';
+
+            if (data.success) {
+                addMsg.style.background = data.auto_approved ? '#dcfce7' : '#fef3c7';
+                addMsg.style.color = data.auto_approved ? '#15803d' : '#92400e';
+                addMsg.innerText = data.message;
+                addForm.reset();
+                fetchStats();
+                if (data.auto_approved && map.getZoom() >= ZOOM_THRESHOLD) {
+                    loadViewportMosques();
+                }
+            } else {
+                addMsg.style.background = '#fee2e2';
+                addMsg.style.color = '#b91c1c';
+                addMsg.innerText = '⚠️ ' + (data.error || 'সাবমিট করা যায়নি।');
+            }
+        } catch (err) {
+            addMsg.style.display = 'block';
+            addMsg.style.background = '#fee2e2';
+            addMsg.style.color = '#b91c1c';
+            addMsg.innerText = '❌ সার্ভারের সাথে সংযোগ ব্যর্থ হয়েছে।';
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> মসজিদ সাবমিট করুন';
+        }
+    });
+}
+

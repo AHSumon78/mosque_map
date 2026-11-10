@@ -59,16 +59,23 @@ router.get('/auth/users', authController.requireAuth, authController.listUsers);
 router.post('/auth/users', authController.requireAuth, authController.createUser);
 router.delete('/auth/users/:id', authController.requireAuth, authController.deleteUser);
 
-// Mosque Query Routes
+// Mosque Query & Public Submission Routes
 router.get('/mosques/nearby', mosqueController.getNearbyMosques);
 router.get('/mosques/search', mosqueController.searchMosques);
 router.get('/mosques/bounds', mosqueController.getMosquesInBounds);
 router.get('/mosques/stats', mosqueController.getStats);
+router.post('/mosques/submit', mosqueController.submitPublicMosque); // Public submission with 10-20m auto-verify
+
+// Admin Pending Mosque Review Routes (Protected)
+router.get('/admin/pending-mosques', authController.requireAuth, mosqueController.getPendingMosques);
+router.post('/admin/pending-mosques/:id/approve', authController.requireAuth, mosqueController.approvePendingMosque);
+router.post('/admin/pending-mosques/:id/reject', authController.requireAuth, mosqueController.rejectPendingMosque);
 
 // Protected Mosque Routes (Require Login)
 router.post('/mosques', authController.requireAuth, mosqueController.createMosque);
 router.put('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
 router.patch('/mosques/:id', authController.requireAuth, mosqueController.updateMosque);
+router.delete('/mosques/:id', authController.requireAuth, mosqueController.deleteMosque);
 router.post('/mosques/import', authController.requireAuth, upload.single('file'), importController.importCSV);
 
 module.exports = router;
