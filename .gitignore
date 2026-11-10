@@ -4,4 +4,6 @@ uploads/*
 !uploads/.gitkeep
 *.log
 .DS_Store
+__pycache__/
+*.pyc
 
