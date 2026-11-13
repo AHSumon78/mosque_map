@@ -70,3 +70,4 @@ if __name__ == "__main__":
     radius_arg = float(sys.argv[3]) if len(sys.argv) > 3 else 20.0
     result = verify(lat_arg, lng_arg, radius_arg)
     print(json.dumps(result, ensure_ascii=False))
+

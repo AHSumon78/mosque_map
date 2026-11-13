@@ -172,6 +172,12 @@
                 <div class="tab-body">
                     <!-- Tab 0: Pending Mosques Review Queue -->
                     <div class="tab-pane active" id="tabPendingMosques">
+                        <div id="pendingActionHeader" style="display:none; justify-content:space-between; align-items:center; margin-bottom:12px; padding:8px 12px; background:#f1f5f9; border-radius:8px;">
+                            <span id="pendingSummaryText" style="font-size:0.85rem; font-weight:600; color:#334155;"></span>
+                            <button id="btnApproveAll" class="btn btn-primary btn-sm" style="background:#059669; border-color:#059669; padding:5px 12px; font-size:0.82rem;" onclick="approveAllPending()">
+                                <i class="fa-solid fa-check-double"></i> সব অনুমোদন করুন (Approve All)
+                            </button>
+                        </div>
                         <div id="pendingListContainer" style="max-height: 360px; overflow-y: auto;">
                             <div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> লোড হচ্ছে...</div>
                         </div>
@@ -310,6 +316,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Floating Toast Notification Container -->
+    <div id="toastContainer"></div>
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

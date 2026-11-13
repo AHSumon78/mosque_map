@@ -1077,10 +1077,37 @@ function setupEventListeners() {
 }
 
 // ==========================================
+// Toast Notification Helper (No JS Alert/Confirm)
+// ==========================================
+function showToast(message, type = 'success') {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast-msg ${type}`;
+    const icon = type === 'success' ? 'fa-circle-check' : (type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-info');
+    toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${message}</span>`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(15px) scale(0.9)';
+        setTimeout(() => toast.remove(), 260);
+    }, 3200);
+}
+
+// ==========================================
 // 12. Admin Pending Mosque Review Functions
 // ==========================================
+let pendingMosquesData = [];
+
 async function loadPendingMosques() {
     const container = document.getElementById('pendingListContainer');
+    const header = document.getElementById('pendingActionHeader');
+    const summaryText = document.getElementById('pendingSummaryText');
     if (!container) return;
     container.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> পেন্ডিং তালিকা লোড হচ্ছে...</div>';
 
@@ -1089,8 +1116,10 @@ async function loadPendingMosques() {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('mosque_token')}` }
         });
         const data = await res.json();
+        pendingMosquesData = (data.success && Array.isArray(data.data)) ? data.data : [];
 
-        if (!data.success || !data.data || data.data.length === 0) {
+        if (pendingMosquesData.length === 0) {
+            if (header) header.style.display = 'none';
             container.innerHTML = `
                 <div style="text-align:center; padding:30px; color:var(--text-muted);">
                     <i class="fa-solid fa-circle-check" style="font-size:2rem; color:var(--primary); margin-bottom:8px;"></i>
@@ -1100,10 +1129,16 @@ async function loadPendingMosques() {
             return;
         }
 
+        if (header) {
+            header.style.display = 'flex';
+            if (summaryText) summaryText.innerText = `⏳ মোট ${pendingMosquesData.length} টি মসজিদ পর্যালোচনার অপেক্ষায়`;
+        }
+
         container.innerHTML = '';
-        data.data.forEach(item => {
+        pendingMosquesData.forEach(item => {
             const card = document.createElement('div');
             card.className = 'pending-card';
+            card.id = `pending-card-${item.id}`;
             const femaleTxt = item.has_female_facility ? '✅ মহিলাদের ব্যবস্থা আছে' : '❌ মহিলাদের ব্যবস্থা নেই';
             card.innerHTML = `
                 <h4><i class="fa-solid fa-mosque" style="color:var(--primary);"></i> ${item.name}</h4>
@@ -1115,10 +1150,10 @@ async function loadPendingMosques() {
                     <button class="btn btn-outline btn-sm" onclick="previewPendingOnMap(${item.latitude}, ${item.longitude}, decodeURIComponent('${encodeURIComponent(item.name)}'))">
                         <i class="fa-solid fa-map-pin"></i> ম্যাপে দেখুন
                     </button>
-                    <button class="btn btn-primary btn-sm" onclick="approvePending(${item.id})">
+                    <button class="btn btn-primary btn-sm btn-approve-${item.id}" onclick="approvePending(${item.id}, this)">
                         <i class="fa-solid fa-check"></i> অনুমোদন (Approve)
                     </button>
-                    <button class="btn btn-danger btn-sm" onclick="rejectPending(${item.id})">
+                    <button class="btn btn-danger btn-sm btn-reject-${item.id}" onclick="rejectPending(${item.id}, this)">
                         <i class="fa-solid fa-xmark"></i> বাতিল (Reject)
                     </button>
                 </div>
@@ -1126,6 +1161,7 @@ async function loadPendingMosques() {
             container.appendChild(card);
         });
     } catch (e) {
+        if (header) header.style.display = 'none';
         container.innerHTML = '<div style="color:red; text-align:center; padding:15px;">পেন্ডিং তালিকা লোড ব্যর্থ হয়েছে।</div>';
     }
 }
@@ -1138,8 +1174,14 @@ function previewPendingOnMap(lat, lng, name) {
     userPinMarker.bindPopup(`<b>⏳ পেন্ডিং রিভিউ:</b><br>${name}<br>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`).openPopup();
 }
 
-async function approvePending(id) {
-    if (!confirm('আপনি কি নিশ্চিত এই মসজিদটি অনুমোদন করে মূল ম্যাপে যুক্ত করতে চান?')) return;
+// 1-Click Instant Approve (No Confirm / Alert)
+async function approvePending(id, btnElement) {
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> অনুমোদন হচ্ছে...';
+    }
+    const card = document.getElementById(`pending-card-${id}`);
+
     try {
         const res = await fetch(`${API_BASE}/admin/pending-mosques/${id}/approve`, {
             method: 'POST',
@@ -1150,20 +1192,42 @@ async function approvePending(id) {
         });
         const data = await res.json();
         if (data.success) {
-            alert(data.message);
+            showToast('✅ মসজিদটি অনুমোদিত হয়ে ম্যাপে যুক্ত হয়েছে!', 'success');
+            if (card) {
+                card.style.transition = 'all 0.3s ease';
+                card.style.opacity = '0';
+                card.style.transform = 'translateX(20px)';
+                setTimeout(() => {
+                    card.remove();
+                    updatePendingHeaderCount();
+                }, 300);
+            }
             fetchStats();
-            loadPendingMosques();
             if (map.getZoom() >= ZOOM_THRESHOLD) loadViewportMosques();
         } else {
-            alert('❌ ' + (data.error || 'অনুমোদন ব্যর্থ!'));
+            showToast('❌ ' + (data.error || 'অনুমোদন ব্যর্থ!'), 'error');
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = '<i class="fa-solid fa-check"></i> অনুমোদন (Approve)';
+            }
         }
     } catch (e) {
-        alert('❌ সার্ভার সংযোগ ত্রুটি: ' + e.message);
+        showToast('❌ সার্ভার সংযোগ ত্রুটি: ' + e.message, 'error');
+        if (btnElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = '<i class="fa-solid fa-check"></i> অনুমোদন (Approve)';
+        }
     }
 }
 
-async function rejectPending(id) {
-    if (!confirm('আপনি কি নিশ্চিত এই আবেদনটি বাতিল করতে চান?')) return;
+// 1-Click Instant Reject (No Confirm / Alert)
+async function rejectPending(id, btnElement) {
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> বাতিল হচ্ছে...';
+    }
+    const card = document.getElementById(`pending-card-${id}`);
+
     try {
         const res = await fetch(`${API_BASE}/admin/pending-mosques/${id}/reject`, {
             method: 'POST',
@@ -1173,14 +1237,97 @@ async function rejectPending(id) {
         });
         const data = await res.json();
         if (data.success) {
-            alert(data.message);
+            showToast('🗑️ আবেদনটি বাতিল করা হয়েছে', 'info');
+            if (card) {
+                card.style.transition = 'all 0.3s ease';
+                card.style.opacity = '0';
+                card.style.transform = 'translateX(-20px)';
+                setTimeout(() => {
+                    card.remove();
+                    updatePendingHeaderCount();
+                }, 300);
+            }
             fetchStats();
-            loadPendingMosques();
         } else {
-            alert('❌ ' + (data.error || 'বাতিল ব্যর্থ!'));
+            showToast('❌ ' + (data.error || 'বাতিল ব্যর্থ!'), 'error');
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = '<i class="fa-solid fa-xmark"></i> বাতিল (Reject)';
+            }
         }
     } catch (e) {
-        alert('❌ সার্ভার সংযোগ ত্রুটি: ' + e.message);
+        showToast('❌ সার্ভার সংযোগ ত্রুটি: ' + e.message, 'error');
+        if (btnElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = '<i class="fa-solid fa-xmark"></i> বাতিল (Reject)';
+        }
+    }
+}
+
+// Bulk 1-Click Approve All Pending
+async function approveAllPending() {
+    const btn = document.getElementById('btnApproveAll');
+    if (!pendingMosquesData || pendingMosquesData.length === 0) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> সব অনুমোদন হচ্ছে... (${pendingMosquesData.length})`;
+    }
+
+    const token = localStorage.getItem('mosque_token');
+    let successCount = 0;
+
+    for (const item of [...pendingMosquesData]) {
+        try {
+            const res = await fetch(`${API_BASE}/admin/pending-mosques/${item.id}/approve`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            const data = await res.json();
+            if (data.success) successCount++;
+        } catch (_) {}
+    }
+
+    showToast(`🎉 সফলভাবে ${successCount}টি মসজিদ একসাথে অনুমোদিত হয়েছে!`, 'success');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-check-double"></i> সব অনুমোদন করুন (Approve All)';
+    }
+
+    fetchStats();
+    loadPendingMosques();
+    if (map.getZoom() >= ZOOM_THRESHOLD) loadViewportMosques();
+}
+
+function updatePendingHeaderCount() {
+    const cards = document.querySelectorAll('.pending-card');
+    const summaryText = document.getElementById('pendingSummaryText');
+    const header = document.getElementById('pendingActionHeader');
+    const tabBadge = document.getElementById('tabPendingCount');
+    const badge = document.getElementById('pendingBadge');
+
+    const count = cards.length;
+    if (badge) badge.innerText = count;
+    if (tabBadge) tabBadge.innerText = count;
+
+    if (count === 0) {
+        if (header) header.style.display = 'none';
+        if (badge) badge.style.display = 'none';
+        if (tabBadge) tabBadge.style.display = 'none';
+        const container = document.getElementById('pendingListContainer');
+        if (container) {
+            container.innerHTML = `
+                <div style="text-align:center; padding:30px; color:var(--text-muted);">
+                    <i class="fa-solid fa-circle-check" style="font-size:2rem; color:var(--primary); margin-bottom:8px;"></i>
+                    <p>কোনো পেন্ডিং মসজিদ রিভিউয়ের অপেক্ষায় নেই।</p>
+                </div>
+            `;
+        }
+    } else {
+        if (summaryText) summaryText.innerText = `⏳ মোট ${count} টি মসজিদ পর্যালোচনার অপেক্ষায়`;
     }
 }
 
